@@ -31,3 +31,22 @@ not represent approval or work that has not occurred.
   tests apply.
 - **Engineer review and approval of this implementation:** Approved by the
   engineer on 2026-11-24; approved for a focused documentation commit.
+
+## Task 2 - Audit-event persistence model
+
+- **Assessment requirement addressed:** Scenario A event persistence, required
+  event fields, deterministic chain order, and storage for predecessor and
+  content hashes.
+- **Prompt record:** After approval, implement only the SQLAlchemy audit-event
+  model and focused persistence tests; do not add API routes, hash generation,
+  or verification behavior.
+- **Files created or modified:** `app/models.py`, `tests/test_models.py`, and
+  this file.
+- **AI contribution:** Proposed the model fields, a server-side UTC timestamp
+  default, required hash columns, and in-memory SQLite tests.
+- **Engineer direction accepted:** The engineer approved the Task 2 plan on
+  2026-11-24.
+- **Engineer modifications or rejections:** None recorded at this point.
+- **Validation performed:** `.venv\\Scripts\\python.exe -m pytest
+  tests\\test_models.py -q` passed: 3 tests passed.
+- **Engineer review and approval of this implementation:** Pending.
