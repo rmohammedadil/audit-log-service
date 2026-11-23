@@ -1,4 +1,3 @@
-
 # Audit Log Service
 
 A tamper-evident audit logging service.
@@ -18,3 +17,4 @@ and verifies the integrity of stored records using a hash chain.
 ## Project Status
 
 Currently in the requirement analysis and initial setup phase.
+
