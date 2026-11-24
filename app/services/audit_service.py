@@ -8,20 +8,50 @@ with the caller.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+from json import JSONDecodeError
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.orm import Session
 
-from app.models import AuditEvent, utc_now
+from app.models import AuditChainState, AuditEvent, utc_now
 
 
 GENESIS_HASH = "AUDIT_LOG_GENESIS_V1"
 DEFAULT_QUERY_LIMIT = 100
 MAX_QUERY_LIMIT = 1000
+
+VIOLATION_CHECKPOINT_MISSING = "CHECKPOINT_MISSING"
+VIOLATION_CONTENT_HASH_MISMATCH = "CONTENT_HASH_MISMATCH"
+VIOLATION_PREVIOUS_HASH_MISMATCH = "PREVIOUS_HASH_MISMATCH"
+VIOLATION_MALFORMED_EVENT_CONTENT = "MALFORMED_EVENT_CONTENT"
+VIOLATION_CHECKPOINT_COUNT_MISMATCH = "CHECKPOINT_COUNT_MISMATCH"
+VIOLATION_CHECKPOINT_HEAD_ID_MISMATCH = "CHECKPOINT_HEAD_ID_MISMATCH"
+VIOLATION_CHECKPOINT_HEAD_HASH_MISMATCH = "CHECKPOINT_HEAD_HASH_MISMATCH"
+
+
+@dataclass(frozen=True)
+class ChainVerificationResult:
+    """A safe, structured explanation of the first detected inconsistency."""
+
+    is_intact: bool
+    checked_record_count: int
+    first_inconsistency_id: int | None
+    violation_type: str | None
+    detail: str
+
+
+class AuditChainIntegrityError(Exception):
+    """Raised when an untrusted checkpoint prevents a safe chain append.
+
+    This remains a domain exception in the service layer. HTTP status mapping
+    belongs to the verification API task so non-HTTP callers retain the same
+    transaction ownership and error semantics.
+    """
 
 
 def normalize_timestamp(timestamp: datetime) -> str:
@@ -123,6 +153,15 @@ def append_audit_event(
     latest_event = session.scalar(
         select(AuditEvent).order_by(AuditEvent.id.desc()).limit(1)
     )
+    existing_event_count = session.scalar(
+        select(func.count()).select_from(AuditEvent)
+    ) or 0
+    checkpoint = session.get(AuditChainState, 1)
+    _validate_checkpoint_for_append(
+        checkpoint=checkpoint,
+        event_count=existing_event_count,
+        latest_event=latest_event,
+    )
     previous_hash = (
         latest_event.content_hash if latest_event is not None else GENESIS_HASH
     )
@@ -148,7 +187,248 @@ def append_audit_event(
     )
     session.add(event)
     session.flush()
+
+    if checkpoint is None:
+        checkpoint = AuditChainState(
+            event_count=1,
+            head_event_id=event.id,
+            head_content_hash=event.content_hash,
+        )
+        session.add(checkpoint)
+    else:
+        checkpoint.event_count = existing_event_count + 1
+        checkpoint.head_event_id = event.id
+        checkpoint.head_content_hash = event.content_hash
+    # Flush the checkpoint with the event, but leave commit/rollback to callers.
+    session.flush()
     return event
+
+
+def _validate_checkpoint_for_append(
+    *,
+    checkpoint: AuditChainState | None,
+    event_count: int,
+    latest_event: AuditEvent | None,
+) -> None:
+    """Refuse to extend an untrusted nonempty chain without repairing it."""
+
+    if checkpoint is None:
+        if event_count:
+            raise AuditChainIntegrityError(
+                "checkpoint state missing for nonempty chain"
+            )
+        return
+
+    if checkpoint.event_count != event_count:
+        raise AuditChainIntegrityError(
+            "checkpoint event count is inconsistent with audit events"
+        )
+    if event_count == 0:
+        if checkpoint.head_event_id is not None or checkpoint.head_content_hash is not None:
+            raise AuditChainIntegrityError(
+                "empty checkpoint state must not contain a chain head"
+            )
+        return
+    if latest_event is None:
+        raise AuditChainIntegrityError("checkpoint has events but no audit-chain head")
+    if checkpoint.head_event_id != latest_event.id:
+        raise AuditChainIntegrityError(
+            "checkpoint head ID is inconsistent with audit events"
+        )
+    if checkpoint.head_content_hash != latest_event.content_hash:
+        raise AuditChainIntegrityError(
+            "checkpoint head hash is inconsistent with audit events"
+        )
+
+
+def _verification_failure(
+    *,
+    checked_record_count: int,
+    first_inconsistency_id: int | None,
+    violation_type: str,
+    detail: str,
+) -> ChainVerificationResult:
+    return ChainVerificationResult(
+        is_intact=False,
+        checked_record_count=checked_record_count,
+        first_inconsistency_id=first_inconsistency_id,
+        violation_type=violation_type,
+        detail=detail,
+    )
+
+
+def _decode_persisted_payload(raw_payload: object) -> dict[str, Any]:
+    """Decode one stored JSON object without involving ORM JSON coercion."""
+
+    if not isinstance(raw_payload, str):
+        raise ValueError("persisted payload is not JSON text")
+    payload = json.loads(raw_payload)
+    if not isinstance(payload, dict):
+        raise ValueError("persisted payload is not a JSON object")
+    return payload
+
+
+def _decode_persisted_timestamp(raw_timestamp: object) -> datetime:
+    """Recreate the documented SQLite UTC timestamp representation per row."""
+
+    if isinstance(raw_timestamp, datetime):
+        timestamp = raw_timestamp
+    elif isinstance(raw_timestamp, str):
+        timestamp = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+    else:
+        raise ValueError("persisted timestamp is not datetime text")
+
+    # This mirrors UtcDateTime: SQLite stores service-origin timestamps as
+    # UTC-naive text, which is restored as UTC only after successful parsing.
+    if timestamp.tzinfo is None:
+        return timestamp.replace(tzinfo=timezone.utc)
+    return timestamp.astimezone(timezone.utc)
+
+
+def verify_audit_chain(session: Session) -> ChainVerificationResult:
+    """Verify persisted events and checkpoint state without changing either.
+
+    Violation precedence is deterministic: missing checkpoint for a nonempty
+    chain; then, by ascending ID, malformed content, content-hash mismatch,
+    and predecessor mismatch; finally checkpoint count, head ID, and head hash
+    mismatches. ``checked_record_count`` includes an event when that event is
+    examined and fails. Database IDs are ordered but need not be consecutive.
+    """
+
+    event_statement = select(
+        AuditEvent.id,
+        AuditEvent.event_type,
+        AuditEvent.actor_id,
+        AuditEvent.resource_type,
+        AuditEvent.resource_id,
+        cast(AuditEvent.payload, String).label("payload_raw"),
+        cast(AuditEvent.timestamp, String).label("timestamp_raw"),
+        AuditEvent.previous_hash,
+        AuditEvent.content_hash,
+    ).order_by(AuditEvent.id.asc())
+    checkpoint_statement = select(
+        AuditChainState.event_count,
+        AuditChainState.head_event_id,
+        AuditChainState.head_content_hash,
+    ).where(AuditChainState.singleton_id == 1)
+    # Column mappings come from the database result, not the session's identity
+    # map, and no_autoflush preserves unrelated local changes. Selecting raw
+    # text keeps JSON/timestamp parsing under the per-event loop below, where a
+    # malformed later row cannot mask an earlier verification failure. Database
+    # execution errors intentionally propagate as operational failures.
+    with session.no_autoflush:
+        events = list(session.execute(event_statement).mappings())
+        checkpoint = session.execute(checkpoint_statement).mappings().one_or_none()
+
+    if events and checkpoint is None:
+        return _verification_failure(
+            checked_record_count=0,
+            first_inconsistency_id=None,
+            violation_type=VIOLATION_CHECKPOINT_MISSING,
+            detail="nonempty audit chain has no trusted checkpoint state",
+        )
+
+    expected_previous_hash = GENESIS_HASH
+    for checked_record_count, event in enumerate(events, start=1):
+        try:
+            payload = _decode_persisted_payload(event["payload_raw"])
+            timestamp = _decode_persisted_timestamp(event["timestamp_raw"])
+        except (JSONDecodeError, TypeError, ValueError, UnicodeDecodeError, OverflowError):
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=event["id"],
+                violation_type=VIOLATION_MALFORMED_EVENT_CONTENT,
+                detail="event content cannot be canonicalized for verification",
+            )
+        if not all(
+            isinstance(event[field], str)
+            for field in (
+                "event_type",
+                "actor_id",
+                "resource_type",
+                "resource_id",
+                "previous_hash",
+                "content_hash",
+            )
+        ):
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=event["id"],
+                violation_type=VIOLATION_MALFORMED_EVENT_CONTENT,
+                detail="event content cannot be canonicalized for verification",
+            )
+        try:
+            recalculated_hash = calculate_content_hash(
+                event_type=event["event_type"],
+                actor_id=event["actor_id"],
+                resource_type=event["resource_type"],
+                resource_id=event["resource_id"],
+                payload=payload,
+                timestamp=timestamp,
+            )
+        except (TypeError, ValueError, OverflowError):
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=event["id"],
+                violation_type=VIOLATION_MALFORMED_EVENT_CONTENT,
+                detail="event content cannot be canonicalized for verification",
+            )
+        if event["content_hash"] != recalculated_hash:
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=event["id"],
+                violation_type=VIOLATION_CONTENT_HASH_MISMATCH,
+                detail="stored content hash does not match persisted event content",
+            )
+        if event["previous_hash"] != expected_previous_hash:
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=event["id"],
+                violation_type=VIOLATION_PREVIOUS_HASH_MISMATCH,
+                detail="stored predecessor hash does not match the prior event",
+            )
+        expected_previous_hash = event["content_hash"]
+
+    actual_count = len(events)
+    actual_head = events[-1] if events else None
+    if checkpoint is None:
+        return ChainVerificationResult(
+            is_intact=True,
+            checked_record_count=0,
+            first_inconsistency_id=None,
+            violation_type=None,
+            detail="empty audit chain has no checkpoint state yet",
+        )
+    if checkpoint["event_count"] != actual_count:
+        return _verification_failure(
+            checked_record_count=actual_count,
+            first_inconsistency_id=None,
+            violation_type=VIOLATION_CHECKPOINT_COUNT_MISMATCH,
+            detail="checkpoint event count does not match persisted audit events",
+        )
+    expected_head_id = actual_head["id"] if actual_head else None
+    if checkpoint["head_event_id"] != expected_head_id:
+        return _verification_failure(
+            checked_record_count=actual_count,
+            first_inconsistency_id=None,
+            violation_type=VIOLATION_CHECKPOINT_HEAD_ID_MISMATCH,
+            detail="checkpoint head ID does not match the persisted chain head",
+        )
+    expected_head_hash = actual_head["content_hash"] if actual_head else None
+    if checkpoint["head_content_hash"] != expected_head_hash:
+        return _verification_failure(
+            checked_record_count=actual_count,
+            first_inconsistency_id=None,
+            violation_type=VIOLATION_CHECKPOINT_HEAD_HASH_MISMATCH,
+            detail="checkpoint head hash does not match the persisted chain head",
+        )
+    return ChainVerificationResult(
+        is_intact=True,
+        checked_record_count=actual_count,
+        first_inconsistency_id=None,
+        violation_type=None,
+        detail="audit chain and checkpoint are intact",
+    )
 
 
 def _normalize_query_timestamp(timestamp: datetime, parameter_name: str) -> datetime:

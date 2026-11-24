@@ -258,3 +258,35 @@ The route rejects blank or oversized string filters, naive or inverted time
 bounds, and invalid pagination with HTTP 422. Pagination defaults to limit
 100 and offset 0, with a maximum limit of 1000. Database retrieval failures
 return a generic HTTP 500 response without exposing internal details.
+
+## 14. Checkpoint-Backed Chain Verification Foundation
+
+`AuditChainState` is a database-enforced singleton checkpoint containing the
+expected event count, chain-head ID, and chain-head content hash. The empty
+chain is valid either before any checkpoint exists or with a zero-count
+checkpoint whose head fields are null. Each append updates the event and
+checkpoint within the caller's transaction; commit and rollback remain the
+caller's responsibility.
+
+The verifier reads raw persisted events in ascending ID order, decodes each
+event's stored JSON and timestamp text only when that event is examined,
+recalculates its content hash, checks its predecessor link, and then compares
+count and head metadata with the checkpoint. This per-record decoding means an
+earlier hash or predecessor failure takes precedence over malformed content in
+a later record. Database IDs establish order but are not required to be
+consecutive. The verifier is read-only and reports structured, deterministic
+violation results rather than raising for identifiable malformed persisted
+content.
+
+Appending to a nonempty chain requires a checkpoint whose count and tail match
+the persisted events. Inconsistency raises the domain-specific
+`AuditChainIntegrityError`; HTTP status mapping is deferred to the future
+verification endpoint. Operational database failures are not classified as
+integrity violations and propagate to the caller.
+
+The checkpoint is stored in the same database and is not an external trust
+anchor. A privileged attacker able to rewrite records, hashes, links, and the
+checkpoint together may evade detection. Existing databases with events but
+without trusted checkpoint state are not backfilled automatically; they need
+an explicit migration or fresh-database strategy. Future retention or archival
+features must retain enough evidence for verification.

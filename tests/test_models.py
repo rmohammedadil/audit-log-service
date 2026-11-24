@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.orm import Session
 
 from app.database import Base
-from app.models import AuditEvent
+from app.models import AuditChainState, AuditEvent
 from app.services.audit_service import calculate_content_hash
 
 
@@ -185,3 +185,18 @@ def test_reloaded_timestamp_reproduces_the_original_content_hash(session: Sessio
         timestamp=stored_event.timestamp,
     )
     assert reloaded_hash == original_hash
+
+
+def test_checkpoint_enforces_singleton_identity_and_empty_shape(session: Session) -> None:
+    invalid_checkpoint = AuditChainState(
+        singleton_id=2,
+        event_count=0,
+        head_event_id=None,
+        head_content_hash=None,
+    )
+    session.add(invalid_checkpoint)
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+    session.rollback()

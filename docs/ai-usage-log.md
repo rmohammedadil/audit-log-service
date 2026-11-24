@@ -231,3 +231,47 @@ not represent approval or work that has not occurred.
   warning and no test failures.
 - **Engineer review and approval of this implementation:** Approved by the
   engineer on 2026-11-24; approved for a focused query-API commit.
+
+## Task 9 - Checkpoint-backed chain verification foundation
+
+- **Assessment requirement addressed:** Scenario A hash-chain verification,
+  direct modification/deletion detection, and append-only integrity evidence.
+- **Prompt record:** Add a transactional singleton checkpoint and a read-only
+  verification service. Do not add `GET /audit/verify` or alter the canonical
+  hash contract.
+- **Design correction accepted:** Database IDs are ordered but not required to
+  be gap-free; predecessor links and checkpoint metadata provide deletion
+  evidence instead. The checkpoint detects trailing deletion.
+- **AuditEventRead status:** The whitespace-normalization concern identified
+  in Task 8 remains unresolved. Verification reads raw ORM values and does not
+  use that schema; no unrelated schema change was made.
+- **Files created or modified:** `app/models.py`,
+  `app/services/audit_service.py`, `tests/test_models.py`,
+  `tests/test_chain_verification.py`, `docs/requirements.md`,
+  `docs/architecture.md`, and this file.
+- **AI contribution:** Proposed the constrained singleton checkpoint,
+  deterministic verification precedence, append safeguards, and isolated
+  direct-tampering tests.
+- **Engineer direction accepted:** The engineer approved Task 9 on
+  2026-11-25.
+- **Engineer modifications or rejections:** Manual review required a domain
+  exception, accurate checkpoint-only result identifiers, raw persisted-value
+  reading, and per-record malformed-content handling before commit.
+- **Validation performed:** Earlier review-cycle validation passed: focused
+  model, append, and verification tests (58 passed), then the full suite (130
+  passed with one existing Starlette `TestClient` deprecation warning). After
+  the final per-record decoding correction,
+  `.venv\\Scripts\\python.exe -m pytest tests\\test_models.py
+  tests\\test_audit_service.py tests\\test_chain_verification.py -q` passed:
+  63 tests passed. The complete suite `.venv\\Scripts\\python.exe -m pytest -q`
+  passed: 135 tests passed with the same existing deprecation warning and no
+  test failures.
+- **Review-driven corrections:** Added `AuditChainIntegrityError` for blocked
+  appends; operational database errors now propagate instead of being reported
+  as malformed evidence; checkpoint-only mismatches return no event ID; and
+  verification now queries raw column mappings to avoid stale identity-map
+  values or flushing unrelated local changes. The final correction reads raw
+  JSON and timestamp text and decodes each event inside the ascending-ID
+  verification loop, so a later malformed record cannot prevent reporting an
+  earlier hash or predecessor mismatch.
+- **Engineer review and approval of this implementation:** Pending.

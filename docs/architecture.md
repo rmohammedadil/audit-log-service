@@ -102,6 +102,35 @@ directly tampered database value could be normalized in a read response. This
 task preserves the existing schema contract; a future tamper-evidence review
 should consider an evidence-preserving read representation.
 
+## Chain Checkpoint and Verification Boundary
+
+`AuditChainState` is a singleton row whose count, head ID, and head hash are
+updated with each appended event in the same caller-owned transaction. Before
+appending to a nonempty database, the service requires a checkpoint that
+matches the current count and tail; it never silently reconstructs missing
+state.
+
+`verify_audit_chain` suppresses autoflush and reads raw persisted column values
+without passing through API schemas. It retrieves JSON and timestamp text
+without ORM type decoding, then decodes and validates them one event at a
+time. Its deterministic precedence is: missing checkpoint for a nonempty
+chain; then, in ascending ID order, malformed event content, content-hash
+mismatch, and predecessor mismatch; then checkpoint count, head-ID, and
+head-hash mismatch. IDs need not be gap-free.
+
+Verification selects column mappings rather than ORM entities, so loaded or
+locally modified identity-map objects cannot substitute for persisted evidence.
+It does not refresh or overwrite those objects. Per-event decoding ensures a
+malformed later row cannot mask an earlier detected failure. Checkpoint-only
+mismatches use no event ID because no particular surviving event can be proven
+inconsistent. Operational SQLAlchemy failures propagate; only identifiable
+persistence decoding or canonicalization failures become integrity results.
+
+The checkpoint catches trailing deletion but is stored in the same database,
+not externally anchored. Coordinated rewriting by a privileged database actor,
+concurrent append coordination, and consistent verification snapshots remain
+out of scope.
+
 ## Key Trade-offs
 
 - SQLite supports a self-contained prototype and test tampering, but is not a

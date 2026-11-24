@@ -3,7 +3,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Integer, String
+from sqlalchemy import CheckConstraint, JSON, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -77,3 +77,30 @@ class AuditEvent(Base):
     )
     previous_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class AuditChainState(Base):
+    """Singleton checkpoint for the expected end of the audit chain.
+
+    Empty chains are valid with no state row before the first append, or with
+    this row set to count zero and null head fields. Once events exist, the
+    state must record their count and final event identity. This detects a
+    deleted trailing event that a predecessor link alone cannot reveal.
+    """
+
+    __tablename__ = "audit_chain_state"
+    __table_args__ = (
+        CheckConstraint("singleton_id = 1", name="ck_audit_chain_state_singleton"),
+        CheckConstraint("event_count >= 0", name="ck_audit_chain_state_nonnegative"),
+        CheckConstraint(
+            "(event_count = 0 AND head_event_id IS NULL AND head_content_hash IS NULL) "
+            "OR (event_count > 0 AND head_event_id IS NOT NULL "
+            "AND head_content_hash IS NOT NULL)",
+            name="ck_audit_chain_state_head_shape",
+        ),
+    )
+
+    singleton_id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    event_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    head_event_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    head_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
