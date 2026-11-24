@@ -87,6 +87,21 @@ to UTC, applies filters before ascending-ID offset/limit pagination, and uses
 It returns persisted model objects only; HTTP query parsing and response
 serialization are deferred to a later task.
 
+## Query API Boundary
+
+`GET /audit/events` maps the public camelCase query names to the service's
+snake_case parameters. FastAPI documents those aliases in Swagger UI and
+performs structural query parsing; the route rejects whitespace-only filters,
+translates service validation failures to HTTP 422, and converts retrieval
+failures to a generic HTTP 500. It delegates all SQLAlchemy filtering and
+ordering to the query service and serializes models through `AuditEventRead`.
+
+`AuditEventRead` shares trimmed string constraints with creation input. Current
+write validation prevents those fields from containing outer whitespace, but a
+directly tampered database value could be normalized in a read response. This
+task preserves the existing schema contract; a future tamper-evidence review
+should consider an evidence-preserving read representation.
+
 ## Key Trade-offs
 
 - SQLite supports a self-contained prototype and test tampering, but is not a

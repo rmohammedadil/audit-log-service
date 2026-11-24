@@ -1,6 +1,7 @@
 """Integration tests for the audit-event write endpoint."""
 
 from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
 
@@ -193,3 +194,194 @@ def test_reloaded_api_event_timestamp_reproduces_content_hash(
         payload=stored_event.payload,
         timestamp=stored_event.timestamp,
     ) == stored_event.content_hash
+
+
+def create_query_fixture_events(client: TestClient) -> list[dict]:
+    """Create distinct persisted events for public query-parameter tests."""
+
+    event_inputs = [
+        {
+            "eventType": "USER_LOGIN",
+            "actorId": "actor-a",
+            "resourceType": "client_account",
+            "resourceId": "account-1",
+            "payload": {},
+        },
+        {
+            "eventType": "RECORD_UPDATED",
+            "actorId": "actor-b",
+            "resourceType": "client_account",
+            "resourceId": "account-2",
+            "payload": {},
+        },
+        {
+            "eventType": "USER_LOGIN",
+            "actorId": "actor-a",
+            "resourceType": "session",
+            "resourceId": "session-1",
+            "payload": {},
+        },
+        {
+            "eventType": "PERMISSION_GRANTED",
+            "actorId": "actor-b",
+            "resourceType": "client_account",
+            "resourceId": "account-1",
+            "payload": {},
+        },
+    ]
+    responses = [client.post("/audit/events", json=event) for event in event_inputs]
+
+    assert all(response.status_code == 201 for response in responses)
+    return [response.json() for response in responses]
+
+
+def test_get_events_returns_camel_case_records_in_ascending_id_order(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = api_client
+    created_events = create_query_fixture_events(client)
+
+    response = client.get("/audit/events")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [event["id"] for event in body] == [event["id"] for event in created_events]
+    assert body[0]["eventType"] == "USER_LOGIN"
+    assert body[0]["previousHash"] == GENESIS_HASH
+    assert "event_type" not in body[0]
+
+
+@pytest.mark.parametrize(
+    ("params", "expected_ids"),
+    [
+        ({"actorId": "actor-a"}, [1, 3]),
+        ({"resourceType": "client_account"}, [1, 2, 4]),
+        ({"resourceId": "account-1"}, [1, 4]),
+        ({"eventType": "USER_LOGIN"}, [1, 3]),
+        (
+            {
+                "actorId": "actor-b",
+                "resourceType": "client_account",
+                "resourceId": "account-1",
+                "eventType": "PERMISSION_GRANTED",
+            },
+            [4],
+        ),
+    ],
+)
+def test_get_events_applies_public_filter_combinations(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+    params: dict[str, str],
+    expected_ids: list[int],
+) -> None:
+    client, _ = api_client
+    create_query_fixture_events(client)
+
+    response = client.get("/audit/events", params=params)
+
+    assert response.status_code == 200
+    assert [event["id"] for event in response.json()] == expected_ids
+
+
+def test_get_events_uses_inclusive_utc_normalized_time_bounds(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = api_client
+    created_events = create_query_fixture_events(client)
+    first_timestamp = datetime.fromisoformat(created_events[0]["timestamp"])
+    india_time = timezone(timedelta(hours=5, minutes=30))
+    normalized_timestamp = first_timestamp.astimezone(india_time).isoformat()
+
+    response = client.get(
+        "/audit/events",
+        params={"from": normalized_timestamp, "to": normalized_timestamp},
+    )
+
+    assert response.status_code == 200
+    assert [event["id"] for event in response.json()] == [created_events[0]["id"]]
+
+
+def test_get_events_returns_empty_array_when_no_events_match(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = api_client
+    create_query_fixture_events(client)
+
+    response = client.get("/audit/events", params={"actorId": "missing-actor"})
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"actorId": "   "},
+        {"actorId": "a" * 257},
+        {"resourceType": "r" * 129},
+        {"from": "2026-11-24T09:00:00"},
+        {"from": "2026-11-24T12:00:00Z", "to": "2026-11-24T09:00:00Z"},
+        {"limit": "1.5"},
+        {"limit": "true"},
+        {"limit": "0"},
+        {"limit": "1001"},
+        {"offset": "-1"},
+        {"offset": "1.5"},
+        {"offset": "true"},
+    ],
+)
+def test_get_events_rejects_invalid_client_query_input(
+    api_client: tuple[TestClient, sessionmaker[Session]], params: dict[str, str]
+) -> None:
+    client, session_factory = api_client
+    created_events = create_query_fixture_events(client)
+
+    response = client.get("/audit/events", params=params)
+
+    assert response.status_code == 422
+    assert event_count(session_factory) == len(created_events)
+
+
+def test_get_events_does_not_modify_persisted_audit_evidence(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    created_events = create_query_fixture_events(client)
+
+    with session_factory() as database_session:
+        before = database_session.scalar(select(AuditEvent).where(AuditEvent.id == 1))
+        assert before is not None
+        evidence_before = (
+            before.timestamp,
+            before.previous_hash,
+            before.content_hash,
+        )
+
+    response = client.get("/audit/events", params={"actorId": "actor-a"})
+
+    assert response.status_code == 200
+    with session_factory() as database_session:
+        after = database_session.scalar(select(AuditEvent).where(AuditEvent.id == 1))
+        assert after is not None
+        evidence_after = (after.timestamp, after.previous_hash, after.content_hash)
+    assert evidence_after == evidence_before
+    assert event_count(session_factory) == len(created_events)
+
+
+def test_get_events_returns_generic_error_when_database_read_fails(
+    api_client: tuple[TestClient, sessionmaker[Session]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, session_factory = api_client
+    created_events = create_query_fixture_events(client)
+    from app.api import audit_routes
+
+    def fail_query(*args: object, **kwargs: object) -> list[AuditEvent]:
+        raise SQLAlchemyError("simulated database read failure")
+
+    monkeypatch.setattr(audit_routes, "query_audit_events", fail_query)
+
+    response = client.get("/audit/events")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Unable to retrieve audit events"}
+    assert event_count(session_factory) == len(created_events)

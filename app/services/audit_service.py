@@ -179,6 +179,12 @@ def query_audit_events(
     produce the same page.
     """
 
+    # ``bool`` is a subclass of ``int`` in Python, so an exact type check is
+    # needed to keep direct service callers from treating True as page size 1.
+    if type(limit) is not int:
+        raise ValueError("limit must be an integer")
+    if type(offset) is not int:
+        raise ValueError("offset must be an integer")
     if not 1 <= limit <= MAX_QUERY_LIMIT:
         raise ValueError(f"limit must be between 1 and {MAX_QUERY_LIMIT}")
     if offset < 0:

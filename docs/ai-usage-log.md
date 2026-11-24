@@ -199,3 +199,35 @@ not represent approval or work that has not occurred.
   existing Starlette `TestClient` deprecation warning and no test failures.
 - **Engineer review and approval of this implementation:** Approved by the
   engineer on 2026-11-24; approved for a focused query-service commit.
+
+## Task 8 - GET /audit/events query API
+
+- **Assessment requirement addressed:** Scenario A query API, combined
+  filtering, inclusive time bounds, pagination, and read-only API access.
+- **Prompt record:** Expose the existing query service as `GET /audit/events`
+  with public camelCase query aliases, strict pagination validation, isolated
+  API tests, and no duplicated SQLAlchemy query logic.
+- **Review-driven correction:** Task 7 range checks did not enforce exact
+  Python integer types for direct service callers. This task adds explicit
+  rejection of floats, strings, and booleans without rewriting Task 7 history.
+- **Schema concern identified:** `AuditEventRead` uses trimmed string
+  constraints, which could normalize direct-database tampering in responses.
+  The existing schema is reused as required; no out-of-scope schema change was
+  made.
+- **Files created or modified:** `app/services/audit_service.py`,
+  `app/api/audit_routes.py`, `tests/test_audit_service.py`,
+  `tests/test_audit_routes.py`, `docs/requirements.md`,
+  `docs/architecture.md`, and this file.
+- **AI contribution:** Proposed query aliases, boundary validation, generic
+  database-error handling, strict service pagination checks, and isolated
+  integration tests.
+- **Engineer direction accepted:** The engineer approved Task 8 on
+  2026-11-24.
+- **Engineer modifications or rejections:** None recorded at this point.
+- **Validation performed:** `.venv\\Scripts\\python.exe -m pytest
+  tests\\test_audit_service.py tests\\test_audit_routes.py -q` passed:
+  64 tests passed. The full suite `.venv\\Scripts\\python.exe -m pytest -q`
+  passed: 103 tests passed with one existing Starlette `TestClient` deprecation
+  warning and no test failures.
+- **Engineer review and approval of this implementation:** Approved by the
+  engineer on 2026-11-24; approved for a focused query-API commit.

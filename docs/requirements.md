@@ -245,3 +245,16 @@ are ordered by ascending record ID, then paginated with a default limit of 100,
 a maximum limit of 1000, and default offset 0. The service rejects naive or
 inverted time bounds and invalid pagination values. It remains read-only and
 does not yet expose an HTTP query endpoint.
+
+## 13. Event Query API
+
+`GET /audit/events` exposes the read-only query service with public
+`actorId`, `resourceType`, `resourceId`, `eventType`, `from`, `to`, `limit`,
+and `offset` query parameters. All supplied filters combine with AND
+semantics. Valid requests return a camelCase array of persisted events in
+ascending ID order; no matches return `[]` with HTTP 200.
+
+The route rejects blank or oversized string filters, naive or inverted time
+bounds, and invalid pagination with HTTP 422. Pagination defaults to limit
+100 and offset 0, with a maximum limit of 1000. Database retrieval failures
+return a generic HTTP 500 response without exposing internal details.

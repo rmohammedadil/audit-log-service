@@ -260,10 +260,20 @@ def test_query_applies_pagination_after_filtering(
 
 @pytest.mark.parametrize(
     ("limit", "offset", "message"),
-    [(0, 0, "limit"), (1001, 0, "limit"), (1, -1, "offset")],
+    [
+        (0, 0, "limit"),
+        (1001, 0, "limit"),
+        (1, -1, "offset"),
+        (1.5, 0, "limit must be an integer"),
+        ("1", 0, "limit must be an integer"),
+        (True, 0, "limit must be an integer"),
+        (1, 1.5, "offset must be an integer"),
+        (1, "0", "offset must be an integer"),
+        (1, False, "offset must be an integer"),
+    ],
 )
 def test_query_rejects_invalid_pagination(
-    session: Session, limit: int, offset: int, message: str
+    session: Session, limit: object, offset: object, message: str
 ) -> None:
     with pytest.raises(ValueError, match=message):
         query_audit_events(session, limit=limit, offset=offset)
