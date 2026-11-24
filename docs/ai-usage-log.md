@@ -405,3 +405,54 @@ not represent approval or work that has not occurred.
 - **Engineer review and approval of this implementation:** Application code,
   test code, and documentation approved by the engineer on 2026-11-25; final
   validation and commit approval in progress.
+
+## Task 13 - Cryptographically linked chain integrity
+
+- **Engineering improvement:** Resolves the Scenario A reconciliation finding
+  that a separate predecessor link did not make downstream hashes
+  cryptographically dependent on earlier records.
+- **Engineer direction accepted:** The engineer approved Option C: retain the
+  independent content hash and add a versioned linked chain hash, with a fresh
+  V2 database and no automatic legacy migration.
+- **Implementation decision:** `previous_hash` retains predecessor-content
+  semantics. V2 adds scheme, predecessor-chain, and chain-hash evidence; the
+  checkpoint stores the V2 head chain hash. Startup preflight rejects legacy
+  or partial schemas before `create_all` can write.
+- **AI contribution:** Designed the canonical chain-link encoding, bounded
+  tail validation, deterministic verification precedence, isolated legacy
+  schema tests, and additive response contract.
+- **Review-driven correction:** The final review found that an explicit empty
+  `AUDIT_DB_PATH` produced an invalid SQLite directory URL and that the
+  verifier docstring omitted the implemented V2 failure precedence. Empty or
+  whitespace-only values now raise a configuration error before URL creation;
+  the docstring now names all implemented violation types in precedence order.
+- **Configuration coverage:** Added isolated tests for absent, empty,
+  whitespace-only, relative, absolute, and space-containing paths. The
+  space-containing path test creates and preflights a disposable V2 database.
+- **Historical status reconciliation:** Earlier Task 10--12 entries retain
+  their contemporaneous pending wording. This prospective record notes that
+  Task 11 was committed as `c49914b` and Task 12 as `17a324c`; no historical
+  entry has been rewritten.
+- **Known limitation:** A fully privileged actor can still rewrite records,
+  every linked hash, and checkpoint state in the same database. This test is
+  documentation of the trust boundary, not successful attack prevention.
+- **Validation performed:** Focused model, hashing, service, verification,
+  database, schema, and API tests passed: 232 tests passed with one existing
+  Starlette `TestClient` deprecation warning. After the final checkpoint-version
+  regression addition, the complete suite using a fresh external disposable
+  pytest base directory passed: 233 tests passed with the same warning. An
+  isolated application startup using a fresh explicit V2
+  database returned HTTP 200 for health, OpenAPI, and verification endpoints.
+- **Database review baseline:** The engineer supplied review-stage SHA-256
+  `B0401EBDF6E7A1A65B9E6CB4667A7E0A64D12A94D5D28E8AD3755FC5A2DCC96A`
+  for the original ignored `audit_log.db`. It establishes a comparison point
+  from review onward, not proof of that database's state before Task 13.
+- **Correction validation:** The focused database configuration suite passed:
+  7 tests passed. The final complete suite passed: 238 tests passed with the
+  same existing warning. The five-test increase from 233 covers default-path,
+  three explicit empty/whitespace-path cases, and relative/absolute paths with
+  a disposable database filename containing spaces.
+- **Engineer final approval:** The engineer accepted Scenario A as a
+  functional prototype on 2026-11-25, subject to final Git validation and the
+  approved Task 13 commit. This records the final status prospectively without
+  rewriting earlier historical entries.

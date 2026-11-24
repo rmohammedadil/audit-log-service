@@ -131,10 +131,12 @@ These questions will be resolved and documented as the design develops.
 - [x] Test normal writes and queries, direct-database modification detection,
   and direct-database deletion detection.
 
-Scenario A is conditionally accepted based on implemented behavior, automated
-validation, and developer-performed manual validation. It remains subject to
-independent reconciliation with the original assessment source, which could
-not be parsed in the local review environment.
+Scenario A is functionally completed and accepted as a prototype based on
+implemented behavior, automated validation, and developer-performed manual
+validation. Requirements reconciliation uses the recovered assessment
+transcription supplied during review; it does not claim independent parsing of
+the original assessment PDF. The documented trust and production limitations
+remain part of this acceptance boundary.
 
 ### Scenario B
 
@@ -320,3 +322,24 @@ resource identifiers, SQL, database paths, credentials, or exception details.
 When a checkpoint inconsistency blocks `POST /audit/events`, the route rolls
 back and returns HTTP 409 without appending an event. Verification and error
 handling do not repair, backfill, or otherwise mutate audit evidence.
+
+## 16. Versioned Linked Chain Hashes
+
+The unchanged `content_hash` is SHA-256 over canonical event content. V2 also
+stores `hash_scheme_version` (`audit-chain-v1`), `previous_chain_hash`, and
+`chain_hash`. A chain hash is SHA-256 of UTF-8 canonical JSON containing
+`contentHash`, `domain` (`audit-log-chain-hash`), `hashSchemeVersion`, and
+`previousChainHash`; keys are sorted, separators are compact, non-ASCII text
+is preserved, and NaN is rejected. The fixed first predecessor is SHA-256 of
+the UTF-8 bytes of `audit-log-chain-genesis-v1`.
+
+`previous_hash` keeps its original meaning: the predecessor event's content
+hash (or the documented content genesis value). It is not silently repurposed.
+The checkpoint records the version, count, head ID, and head chain hash.
+Append validates only bounded tail/checkpoint integrity; full verification is
+required to assess the complete history.
+
+The default runtime database is `audit_log_v2.db`, configurable through
+`AUDIT_DB_PATH`. Startup inspects any existing audit tables before `create_all`
+and rejects V1 or partial schemas without mutation. The original `audit_log.db`
+is not migrated, backfilled, reset, or modified automatically.

@@ -130,6 +130,9 @@ def seeded_events(session: Session) -> list[AuditEvent]:
             timestamp=timestamps[0],
             previous_hash="AUDIT_LOG_GENESIS_V1",
             content_hash="a" * 64,
+            hash_scheme_version="audit-chain-v1",
+            previous_chain_hash="e" * 64,
+            chain_hash="f" * 64,
         ),
         AuditEvent(
             event_type="RECORD_UPDATED",
@@ -140,6 +143,9 @@ def seeded_events(session: Session) -> list[AuditEvent]:
             timestamp=timestamps[1],
             previous_hash="a" * 64,
             content_hash="b" * 64,
+            hash_scheme_version="audit-chain-v1",
+            previous_chain_hash="f" * 64,
+            chain_hash="1" * 64,
         ),
         AuditEvent(
             event_type="USER_LOGIN",
@@ -150,6 +156,9 @@ def seeded_events(session: Session) -> list[AuditEvent]:
             timestamp=timestamps[2],
             previous_hash="b" * 64,
             content_hash="c" * 64,
+            hash_scheme_version="audit-chain-v1",
+            previous_chain_hash="1" * 64,
+            chain_hash="2" * 64,
         ),
         AuditEvent(
             event_type="PERMISSION_GRANTED",
@@ -160,6 +169,9 @@ def seeded_events(session: Session) -> list[AuditEvent]:
             timestamp=timestamps[3],
             previous_hash="c" * 64,
             content_hash="d" * 64,
+            hash_scheme_version="audit-chain-v1",
+            previous_chain_hash="2" * 64,
+            chain_hash="3" * 64,
         ),
     ]
     session.add_all(events)

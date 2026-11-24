@@ -1,6 +1,15 @@
 
 # Architecture Overview
 
+## Scenario A Completion Status
+
+Scenario A is functionally completed as a tamper-evident prototype. This
+status is reconciled against the recovered assessment transcription supplied
+during review, not an independently parsed original PDF. It is not a claim of
+production readiness, tamper-proof storage, or regulatory compliance; the
+documented trust, concurrency, operational, and deployment limitations remain
+in scope for later work.
+
 ## Initial Scope
 
 The prototype is a FastAPI service backed by SQLite. HTTP routes validate
@@ -20,14 +29,14 @@ from the HTTP interface.
 | `app/database.py` | Configures the SQLite engine, sessions, and declarative base. |
 | `tests/` | Covers service rules, API behavior, and direct-database tamper scenarios. |
 
-## Scenario A Data Model (Proposed)
+## Scenario A Data Model
 
 An audit event will have a database ID, event fields, a UTC timestamp, the
 previous-record hash, and a SHA-256 content hash. The database ID orders the
 chain, but it is not part of the content hash because it is unavailable until
 the row is persisted. The content hash covers the required event fields and a
-normalized UTC timestamp using canonical JSON. The predecessor hash remains a
-separate chain link.
+normalized UTC timestamp using canonical JSON. V2 preserves that predecessor
+content hash and adds a separate cryptographically linked chain hash.
 
 The database is intentionally not assumed to be trusted: verification
 recomputes hashes from stored values and checks every predecessor link. The
@@ -46,7 +55,7 @@ necessary because a reloaded timestamp must produce the same content hash as
 the original event. The invariant applies only to rows known to originate
 from this service; unknown legacy values are not migrated or repaired.
 
-## API Direction (Proposed)
+## API Direction
 
 - `POST /audit/events`: append one validated event.
 - `GET /audit/events`: list events with optional filters and pagination.
@@ -158,3 +167,24 @@ transaction ownership in the service and HTTP layer respectively.
   cursor pagination would be a production-oriented follow-up.
 - Stronger tamper resistance would require external hash anchoring or
   write-once storage, beyond this prototype's stated requirement.
+
+## V2 Linked Integrity Boundary
+
+V2 preserves `content_hash` as the independent digest of canonical event
+content. Each event additionally stores a scheme version, predecessor chain
+hash, and a domain-separated chain hash over the version, content hash, and
+predecessor chain hash. This creates transitive cryptographic dependency while
+leaving the event-content hash rule unchanged. The checkpoint uses the head
+chain hash, not a redundant head content hash.
+
+The runtime database path comes from `AUDIT_DB_PATH` and defaults to
+`audit_log_v2.db` when absent. Relative paths resolve from the process working
+directory; absolute paths and paths containing spaces are preserved. Explicit
+empty or whitespace-only values are configuration errors, not a fallback to a
+different database. Before creating tables, startup compares existing audit
+table names and column-name sets with the expected V2 schema and rejects
+legacy or partial schemas without writing to them. This preflight does not
+validate column types, constraints, indexes, or SQLite table SQL. The V1
+`audit_log.db` remains an untouched legacy artifact. The system is still not
+an external trust anchor: a privileged actor able to rewrite all records,
+linked hashes, and checkpoint state can make the database appear consistent.

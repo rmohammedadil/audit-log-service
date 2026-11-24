@@ -121,7 +121,16 @@ def test_create_schema_requires_an_object_payload(payload: object) -> None:
 
 @pytest.mark.parametrize(
     "server_owned_field",
-    ["timestamp", "id", "previous_hash", "content_hash", "unexpected"],
+    [
+        "timestamp",
+        "id",
+        "previous_hash",
+        "content_hash",
+        "hashSchemeVersion",
+        "previousChainHash",
+        "chainHash",
+        "unexpected",
+    ],
 )
 def test_create_schema_rejects_server_owned_and_unexpected_fields(
     server_owned_field: str,
@@ -143,6 +152,9 @@ def test_read_schema_serializes_model_with_public_field_names() -> None:
         timestamp=datetime(2026, 11, 24, 9, 30, tzinfo=timezone.utc),
         previous_hash="AUDIT_LOG_GENESIS_V1",
         content_hash="a" * 64,
+        hash_scheme_version="audit-chain-v1",
+        previous_chain_hash="b" * 64,
+        chain_hash="c" * 64,
     )
 
     event = AuditEventRead.model_validate(model)
@@ -154,6 +166,9 @@ def test_read_schema_serializes_model_with_public_field_names() -> None:
     assert response["resourceId"] == "account-123"
     assert response["previousHash"] == "AUDIT_LOG_GENESIS_V1"
     assert response["contentHash"] == "a" * 64
+    assert response["hashSchemeVersion"] == "audit-chain-v1"
+    assert response["previousChainHash"] == "b" * 64
+    assert response["chainHash"] == "c" * 64
     assert "event_type" not in response
     assert "previous_hash" not in response
 
@@ -177,6 +192,9 @@ def test_read_schema_preserves_persisted_string_evidence(
         timestamp=datetime(2026, 11, 24, 9, 30, tzinfo=timezone.utc),
         previous_hash="AUDIT_LOG_GENESIS_V1",
         content_hash="a" * 64,
+        hash_scheme_version="audit-chain-v1",
+        previous_chain_hash="b" * 64,
+        chain_hash="c" * 64,
     )
     setattr(model, python_name, persisted_value)
 

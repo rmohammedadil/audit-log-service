@@ -15,7 +15,8 @@ to independent reconciliation with the original assessment source.
 - `GET /audit/events` retrieves events with combined filters, inclusive UTC
   time bounds, and offset/limit pagination.
 - `GET /audit/verify` verifies the full persisted hash chain and checkpoint.
-- Canonical UTF-8 JSON and SHA-256 produce deterministic content hashes.
+- Canonical UTF-8 JSON and SHA-256 produce deterministic content hashes and
+  versioned cryptographically linked chain hashes.
 - SQLite persistence restores server-assigned timestamps as timezone-aware UTC
   values so persisted events remain hash-verifiable.
 - Automated tests cover normal writes, queries, verification, direct-database
@@ -105,8 +106,14 @@ From the repository root, start the development server:
 python -m uvicorn app.main:app --reload
 ```
 
-The prototype creates `audit_log.db` in the current working directory on
-startup. It is a local runtime artifact and is ignored by Git.
+The prototype creates `audit_log_v2.db` in the current working directory on
+startup. Set `AUDIT_DB_PATH` to select another fresh V2 SQLite database. The
+original `audit_log.db` is a legacy V1 database and is never migrated or
+modified automatically; startup rejects incompatible schemas before creating
+or changing tables. If `AUDIT_DB_PATH` is absent, the default is a relative
+`audit_log_v2.db` path under the process working directory. Relative and
+absolute paths, including filenames with spaces, are supported; explicitly
+empty or whitespace-only values are rejected as configuration errors.
 
 Open these local URLs while the server is running:
 
@@ -129,6 +136,11 @@ Open these local URLs while the server is running:
 The server assigns the timestamp, ID, predecessor hash, and content hash.
 Unexpected fields, including caller-supplied timestamps and hashes, are
 rejected.
+
+Responses retain `previousHash` (the predecessor content hash) and
+`contentHash`, and add `hashSchemeVersion`, `previousChainHash`, and
+`chainHash`. `chainHash` commits to this event's content hash and its
+predecessor chain hash using the `audit-chain-v1` canonical JSON rule.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/audit/events \
@@ -271,10 +283,19 @@ needs to be retained.
 - SQLite, startup `create_all`, and offset pagination are prototype choices;
   there are no migrations, retention, redaction, export, Docker, CI/CD, or
   production deployment configuration.
-- `AuditEventRead` can trim whitespace in directly tampered strings; the chain
-  verifier avoids that API schema and reads raw persisted evidence instead.
+- `AuditEventRead` preserves the four persisted event strings exactly as
+  stored. Malformed JSON, timestamps, nulls, or incompatible stored types are
+  separate retrieval concerns.
+- The linked chain detects ordinary coordinated content/hash/link edits unless
+  every later chain hash and the checkpoint are also rewritten. A privileged
+  actor who rewrites the complete database can still evade a same-database,
+  unkeyed design.
 - The installed Starlette/TestClient integration emits a known deprecation
   warning. Dependency versions are preserved because they are the tested set.
+
+Startup preflight compares the names of existing audit tables and their column
+sets with the expected V2 schema before calling `create_all`. It does not
+validate database column types, constraints, indexes, or SQLite table SQL.
 
 Planned Scenario B work concerns retention, redaction, and export. Scenario C
 and broader production hardening are intentionally not implemented here.

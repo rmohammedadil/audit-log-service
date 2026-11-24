@@ -11,14 +11,23 @@ from app.database import Base
 from app.models import AuditChainState, AuditEvent
 from app.services.audit_service import (
     AuditChainIntegrityError,
+    GENESIS_CHAIN_HASH,
+    GENESIS_HASH,
+    HASH_SCHEME_VERSION,
     VIOLATION_CHECKPOINT_COUNT_MISMATCH,
-    VIOLATION_CHECKPOINT_HEAD_HASH_MISMATCH,
+    VIOLATION_CHECKPOINT_HEAD_CHAIN_HASH_MISMATCH,
     VIOLATION_CHECKPOINT_HEAD_ID_MISMATCH,
     VIOLATION_CHECKPOINT_MISSING,
+    VIOLATION_CHECKPOINT_VERSION_MISMATCH,
     VIOLATION_CONTENT_HASH_MISMATCH,
     VIOLATION_MALFORMED_EVENT_CONTENT,
+    VIOLATION_MALFORMED_HASH,
+    VIOLATION_CHAIN_HASH_MISMATCH,
+    VIOLATION_PREVIOUS_CHAIN_HASH_MISMATCH,
     VIOLATION_PREVIOUS_HASH_MISMATCH,
+    VIOLATION_UNSUPPORTED_HASH_SCHEME,
     append_audit_event,
+    calculate_chain_hash,
     calculate_content_hash,
     verify_audit_chain,
 )
@@ -60,7 +69,7 @@ def test_empty_chain_without_checkpoint_is_valid(session: Session) -> None:
 
 
 def test_empty_chain_with_explicit_empty_checkpoint_is_valid(session: Session) -> None:
-    session.add(AuditChainState(event_count=0))
+    session.add(AuditChainState(hash_scheme_version=HASH_SCHEME_VERSION, event_count=0))
     session.commit()
 
     result = verify_audit_chain(session)
@@ -76,7 +85,7 @@ def test_append_initializes_and_updates_checkpoint(session: Session) -> None:
     assert checkpoint is not None
     assert checkpoint.event_count == 2
     assert checkpoint.head_event_id == events[-1].id
-    assert checkpoint.head_content_hash == events[-1].content_hash
+    assert checkpoint.head_chain_hash == events[-1].chain_hash
     assert verify_audit_chain(session).is_intact is True
 
 
@@ -104,7 +113,7 @@ def test_append_rollback_preserves_an_existing_valid_chain(session: Session) -> 
     checkpoint_before = (
         original_checkpoint.event_count,
         original_checkpoint.head_event_id,
-        original_checkpoint.head_content_hash,
+        original_checkpoint.head_chain_hash,
     )
 
     append_audit_event(
@@ -125,7 +134,7 @@ def test_append_rollback_preserves_an_existing_valid_chain(session: Session) -> 
     assert (
         persisted_checkpoint.event_count,
         persisted_checkpoint.head_event_id,
-        persisted_checkpoint.head_content_hash,
+        persisted_checkpoint.head_chain_hash,
     ) == checkpoint_before
     assert verify_audit_chain(session).is_intact is True
 
@@ -332,9 +341,10 @@ def test_missing_checkpoint_for_existing_events_is_detected_and_blocks_append(
 @pytest.mark.parametrize(
     ("attribute", "replacement", "expected_violation"),
     [
+        ("hash_scheme_version", "unsupported", VIOLATION_CHECKPOINT_VERSION_MISMATCH),
         ("event_count", 99, VIOLATION_CHECKPOINT_COUNT_MISMATCH),
         ("head_event_id", 99, VIOLATION_CHECKPOINT_HEAD_ID_MISMATCH),
-        ("head_content_hash", "f" * 64, VIOLATION_CHECKPOINT_HEAD_HASH_MISMATCH),
+        ("head_chain_hash", "f" * 64, VIOLATION_CHECKPOINT_HEAD_CHAIN_HASH_MISMATCH),
     ],
 )
 def test_incorrect_checkpoint_values_are_detected(
@@ -356,7 +366,7 @@ def test_incorrect_checkpoint_values_are_detected(
     [
         ("event_count", 2, "event count"),
         ("head_event_id", 99, "head ID"),
-        ("head_content_hash", "f" * 64, "head hash"),
+        ("head_chain_hash", "f" * 64, "head chain hash"),
     ],
 )
 def test_inconsistent_checkpoint_blocks_append(
@@ -390,6 +400,11 @@ def test_legitimate_id_gap_is_not_an_integrity_violation(session: Session) -> No
         payload={},
         timestamp=timestamp,
     )
+    second_chain_hash = calculate_chain_hash(
+        hash_scheme_version=HASH_SCHEME_VERSION,
+        content_hash=second_hash,
+        previous_chain_hash=first_event.chain_hash,
+    )
     gap_event = AuditEvent(
         id=10,
         event_type="EVENT_GAP",
@@ -400,13 +415,16 @@ def test_legitimate_id_gap_is_not_an_integrity_violation(session: Session) -> No
         timestamp=timestamp,
         previous_hash=first_event.content_hash,
         content_hash=second_hash,
+        hash_scheme_version=HASH_SCHEME_VERSION,
+        previous_chain_hash=first_event.chain_hash,
+        chain_hash=second_chain_hash,
     )
     checkpoint = session.get(AuditChainState, 1)
     assert checkpoint is not None
     session.add(gap_event)
     checkpoint.event_count = 2
     checkpoint.head_event_id = 10
-    checkpoint.head_content_hash = second_hash
+    checkpoint.head_chain_hash = second_chain_hash
     session.commit()
 
     assert verify_audit_chain(session).is_intact is True
@@ -423,7 +441,7 @@ def test_verification_is_read_only(session: Session) -> None:
     checkpoint_before = (
         checkpoint.event_count,
         checkpoint.head_event_id,
-        checkpoint.head_content_hash,
+        checkpoint.head_chain_hash,
     )
 
     result = verify_audit_chain(session)
@@ -442,7 +460,7 @@ def test_verification_is_read_only(session: Session) -> None:
     assert (
         reloaded_checkpoint.event_count,
         reloaded_checkpoint.head_event_id,
-        reloaded_checkpoint.head_content_hash,
+        reloaded_checkpoint.head_chain_hash,
     ) == checkpoint_before
 
 
@@ -491,3 +509,122 @@ def test_operational_database_error_propagates(
 
     with pytest.raises(OperationalError):
         verify_audit_chain(session)
+
+
+def test_three_event_chain_has_transitive_linked_hashes(session: Session) -> None:
+    events = append_events(session, 3)
+
+    assert events[0].previous_chain_hash == GENESIS_CHAIN_HASH
+    assert events[1].previous_chain_hash == events[0].chain_hash
+    assert events[2].previous_chain_hash == events[1].chain_hash
+    assert all(event.hash_scheme_version == HASH_SCHEME_VERSION for event in events)
+    assert verify_audit_chain(session).is_intact is True
+
+
+def test_recomputed_content_hash_still_requires_downstream_chain_recalculation(
+    session: Session,
+) -> None:
+    events = append_events(session, 2)
+    first = events[0]
+    first.actor_id = "rewritten-actor"
+    first.content_hash = calculate_content_hash(
+        event_type=first.event_type,
+        actor_id=first.actor_id,
+        resource_type=first.resource_type,
+        resource_id=first.resource_id,
+        payload=first.payload,
+        timestamp=first.timestamp,
+    )
+    first.chain_hash = calculate_chain_hash(
+        hash_scheme_version=HASH_SCHEME_VERSION,
+        content_hash=first.content_hash,
+        previous_chain_hash=first.previous_chain_hash,
+    )
+    events[1].previous_hash = first.content_hash
+    session.commit()
+
+    result = verify_audit_chain(session)
+
+    assert result.violation_type == VIOLATION_PREVIOUS_CHAIN_HASH_MISMATCH
+    assert result.first_inconsistency_id == events[1].id
+
+
+def test_chain_hash_modification_and_unsupported_scheme_are_distinguished(
+    session: Session,
+) -> None:
+    event = append_events(session, 1)[0]
+    event.chain_hash = "f" * 64
+    session.commit()
+
+    result = verify_audit_chain(session)
+    assert result.violation_type == VIOLATION_CHAIN_HASH_MISMATCH
+
+    event.hash_scheme_version = "unsupported"
+    session.commit()
+    result = verify_audit_chain(session)
+    assert result.violation_type == VIOLATION_UNSUPPORTED_HASH_SCHEME
+
+
+def test_malformed_chain_hash_is_reported_at_its_event(session: Session) -> None:
+    event = append_events(session, 1)[0]
+    event.chain_hash = "not-a-digest"
+    session.commit()
+
+    result = verify_audit_chain(session)
+
+    assert result.violation_type == VIOLATION_MALFORMED_HASH
+    assert result.first_inconsistency_id == event.id
+
+
+def test_tail_integrity_validation_blocks_extension_without_full_scan(session: Session) -> None:
+    event = append_events(session, 1)[0]
+    checkpoint = session.get(AuditChainState, 1)
+    assert checkpoint is not None
+    event.chain_hash = "f" * 64
+    checkpoint.head_chain_hash = event.chain_hash
+    session.commit()
+
+    with pytest.raises(AuditChainIntegrityError, match="tail chain hash"):
+        append_audit_event(
+            session,
+            event_type="EVENT_2",
+            actor_id="actor-1",
+            resource_type="client_account",
+            resource_id="account-2",
+            payload={},
+        )
+
+
+def test_fully_coordinated_same_database_rewrite_remains_documented_limitation(
+    session: Session,
+) -> None:
+    """A privileged actor can still rewrite all evidence and the checkpoint."""
+
+    events = append_events(session, 2)
+    events[0].payload = {"sequence": "rewritten"}
+    previous_content_hash = GENESIS_HASH
+    previous_chain_hash = GENESIS_CHAIN_HASH
+    for event in events:
+        event.previous_hash = previous_content_hash
+        event.previous_chain_hash = previous_chain_hash
+        event.content_hash = calculate_content_hash(
+            event_type=event.event_type,
+            actor_id=event.actor_id,
+            resource_type=event.resource_type,
+            resource_id=event.resource_id,
+            payload=event.payload,
+            timestamp=event.timestamp,
+        )
+        event.chain_hash = calculate_chain_hash(
+            hash_scheme_version=HASH_SCHEME_VERSION,
+            content_hash=event.content_hash,
+            previous_chain_hash=event.previous_chain_hash,
+        )
+        previous_content_hash = event.content_hash
+        previous_chain_hash = event.chain_hash
+    checkpoint = session.get(AuditChainState, 1)
+    assert checkpoint is not None
+    checkpoint.head_chain_hash = events[-1].chain_hash
+    session.commit()
+
+    assert verify_audit_chain(session).is_intact is True

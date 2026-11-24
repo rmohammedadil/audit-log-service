@@ -5,12 +5,13 @@ from fastapi import FastAPI
 
 from app import models  # Registers SQLAlchemy models before schema creation.
 from app.api.audit_routes import router as audit_router
-from app.database import Base, engine
+from app.database import Base, engine, preflight_database_schema
 
 
 def initialize_database() -> None:
-    """Create prototype tables for the configured database when the app starts."""
+    """Preflight the configured database before creating fresh V2 tables."""
 
+    preflight_database_schema(engine)
     Base.metadata.create_all(bind=engine)
 
 

@@ -16,7 +16,9 @@ from app.database import Base, get_db
 from app.main import app
 from app.models import AuditChainState, AuditEvent
 from app.services.audit_service import (
+    GENESIS_CHAIN_HASH,
     GENESIS_HASH,
+    HASH_SCHEME_VERSION,
     VIOLATION_CHECKPOINT_COUNT_MISMATCH,
     VIOLATION_CHECKPOINT_MISSING,
     VIOLATION_CONTENT_HASH_MISMATCH,
@@ -116,6 +118,9 @@ def persisted_chain_evidence(
                 event.timestamp,
                 event.previous_hash,
                 event.content_hash,
+                event.hash_scheme_version,
+                event.previous_chain_hash,
+                event.chain_hash,
             )
             for event in events
         ]
@@ -123,9 +128,10 @@ def persisted_chain_evidence(
             None
             if checkpoint is None
             else (
+                checkpoint.hash_scheme_version,
                 checkpoint.event_count,
                 checkpoint.head_event_id,
-                checkpoint.head_content_hash,
+                checkpoint.head_chain_hash,
             )
         )
     return event_evidence, checkpoint_evidence
@@ -149,6 +155,9 @@ def test_post_event_returns_created_event_and_persists_it(
     assert body["timestamp"]
     assert body["previousHash"] == GENESIS_HASH
     assert re.fullmatch(r"[0-9a-f]{64}", body["contentHash"])
+    assert body["hashSchemeVersion"] == HASH_SCHEME_VERSION
+    assert body["previousChainHash"] == GENESIS_CHAIN_HASH
+    assert re.fullmatch(r"[0-9a-f]{64}", body["chainHash"])
     assert event_count(session_factory) == 1
 
 
@@ -166,6 +175,7 @@ def test_two_api_writes_link_to_the_previous_content_hash(
     assert first_response.status_code == 201
     assert second_response.status_code == 201
     assert second_response.json()["previousHash"] == first_response.json()["contentHash"]
+    assert second_response.json()["previousChainHash"] == first_response.json()["chainHash"]
 
 
 @pytest.mark.parametrize("field", VALID_EVENT)
@@ -202,7 +212,16 @@ def test_invalid_values_return_422_without_persistence(
 
 @pytest.mark.parametrize(
     "server_owned_or_unexpected_field",
-    ["timestamp", "id", "previous_hash", "content_hash", "unexpected"],
+    [
+        "timestamp",
+        "id",
+        "previous_hash",
+        "content_hash",
+        "hashSchemeVersion",
+        "previousChainHash",
+        "chainHash",
+        "unexpected",
+    ],
 )
 def test_server_owned_and_unexpected_fields_return_422_without_persistence(
     api_client: tuple[TestClient, sessionmaker[Session]],

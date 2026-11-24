@@ -49,6 +49,9 @@ class AuditEventRead(BaseModel):
     timestamp: datetime
     previous_hash: str = Field(alias="previousHash")
     content_hash: str = Field(alias="contentHash")
+    hash_scheme_version: str = Field(alias="hashSchemeVersion")
+    previous_chain_hash: str = Field(alias="previousChainHash")
+    chain_hash: str = Field(alias="chainHash")
 
 
 class AuditChainVerificationRead(BaseModel):

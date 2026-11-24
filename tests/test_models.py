@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.database import Base
 from app.models import AuditChainState, AuditEvent
-from app.services.audit_service import calculate_content_hash
+from app.services.audit_service import (
+    GENESIS_CHAIN_HASH,
+    GENESIS_HASH,
+    HASH_SCHEME_VERSION,
+    calculate_chain_hash,
+    calculate_content_hash,
+)
 
 
 @pytest.fixture()
@@ -24,6 +30,22 @@ def session() -> Session:
     engine.dispose()
 
 
+def chain_fields(content_hash: str) -> dict[str, str]:
+    """Build valid V2 chain fields for direct persistence-model tests."""
+
+    return {
+        "previous_hash": GENESIS_HASH,
+        "content_hash": content_hash,
+        "hash_scheme_version": HASH_SCHEME_VERSION,
+        "previous_chain_hash": GENESIS_CHAIN_HASH,
+        "chain_hash": calculate_chain_hash(
+            hash_scheme_version=HASH_SCHEME_VERSION,
+            content_hash=content_hash,
+            previous_chain_hash=GENESIS_CHAIN_HASH,
+        ),
+    }
+
+
 def test_audit_event_persists_all_required_fields(session: Session) -> None:
     event = AuditEvent(
         event_type="RECORD_UPDATED",
@@ -31,8 +53,7 @@ def test_audit_event_persists_all_required_fields(session: Session) -> None:
         resource_type="client_account",
         resource_id="account-123",
         payload={"changed_fields": ["address"]},
-        previous_hash="AUDIT_LOG_GENESIS_V1",
-        content_hash="a" * 64,
+        **chain_fields("a" * 64),
     )
 
     session.add(event)
@@ -51,8 +72,10 @@ def test_audit_event_persists_all_required_fields(session: Session) -> None:
     assert stored_event.payload == {"changed_fields": ["address"]}
     assert stored_event.timestamp is not None
     assert stored_event.timestamp.tzinfo == timezone.utc
-    assert stored_event.previous_hash == "AUDIT_LOG_GENESIS_V1"
+    assert stored_event.previous_hash == GENESIS_HASH
     assert stored_event.content_hash == "a" * 64
+    assert stored_event.hash_scheme_version == HASH_SCHEME_VERSION
+    assert stored_event.previous_chain_hash == GENESIS_CHAIN_HASH
 
 
 def test_audit_event_uses_server_assigned_utc_timestamp(session: Session) -> None:
@@ -62,8 +85,7 @@ def test_audit_event_uses_server_assigned_utc_timestamp(session: Session) -> Non
         resource_type="session",
         resource_id="session-1",
         payload={},
-        previous_hash="AUDIT_LOG_GENESIS_V1",
-        content_hash="b" * 64,
+        **chain_fields("b" * 64),
     )
 
     session.add(event)
@@ -85,7 +107,7 @@ def test_audit_event_requires_chain_hashes(session: Session) -> None:
         resource_type="session",
         resource_id="session-1",
         payload={},
-        previous_hash="AUDIT_LOG_GENESIS_V1",
+        previous_hash=GENESIS_HASH,
     )
 
     session.add(event)
@@ -116,8 +138,7 @@ def test_non_utc_timestamp_is_normalized_with_microseconds_preserved(
         resource_id="session-1",
         payload={},
         timestamp=source_timestamp,
-        previous_hash="AUDIT_LOG_GENESIS_V1",
-        content_hash="c" * 64,
+        **chain_fields("c" * 64),
     )
 
     session.add(event)
@@ -140,8 +161,7 @@ def test_naive_timestamp_is_rejected_before_persistence(session: Session) -> Non
         resource_id="session-1",
         payload={},
         timestamp=datetime(2026, 11, 24, 9, 30),
-        previous_hash="AUDIT_LOG_GENESIS_V1",
-        content_hash="d" * 64,
+        **chain_fields("d" * 64),
     )
 
     session.add(event)
@@ -165,8 +185,7 @@ def test_reloaded_timestamp_reproduces_the_original_content_hash(session: Sessio
     original_hash = calculate_content_hash(**event_fields)
     event = AuditEvent(
         **event_fields,
-        previous_hash="AUDIT_LOG_GENESIS_V1",
-        content_hash=original_hash,
+        **chain_fields(original_hash),
     )
 
     session.add(event)
@@ -190,9 +209,10 @@ def test_reloaded_timestamp_reproduces_the_original_content_hash(session: Sessio
 def test_checkpoint_enforces_singleton_identity_and_empty_shape(session: Session) -> None:
     invalid_checkpoint = AuditChainState(
         singleton_id=2,
+        hash_scheme_version=HASH_SCHEME_VERSION,
         event_count=0,
         head_event_id=None,
-        head_content_hash=None,
+        head_chain_hash=None,
     )
     session.add(invalid_checkpoint)
 
