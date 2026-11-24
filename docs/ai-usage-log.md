@@ -96,3 +96,26 @@ not represent approval or work that has not occurred.
   -q` passed: 16 tests passed.
 - **Engineer review and approval of this implementation:** Approved by the
   engineer on 2026-11-24; approved for a focused append-service commit.
+
+## Task 5 - Validated audit-event API schemas
+
+- **Assessment requirement addressed:** Scenario A write-event field contract,
+  server-owned timestamps and integrity evidence, and API/schema definitions.
+- **Prompt record:** Implement only Pydantic request and response schemas with
+  camelCase API aliases, validation aligned to the model's string limits, and
+  explicit rejection of server-owned or unexpected input fields.
+- **Files created or modified:** `app/schemas.py`, `tests/test_schemas.py`,
+  `docs/requirements.md`, `docs/architecture.md`, and this file.
+- **AI contribution:** Proposed Pydantic v2 schemas, alias mapping,
+  model-instance serialization, and focused validation tests.
+- **Engineer direction accepted:** The engineer approved the Task 5 plan on
+  2026-11-24.
+- **Engineer modifications or rejections:** None recorded at this point.
+- **Validation performed:** The first focused run found that response aliases
+  did not read snake_case SQLAlchemy attributes. The read schema was corrected
+  with Pydantic's `validate_by_name=True`. The rerun of
+  `.venv\\Scripts\\python.exe -m pytest tests\\test_schemas.py -q` passed:
+  24 tests passed. The full suite `.venv\\Scripts\\python.exe -m pytest -q`
+  passed: 40 tests passed.
+- **Engineer review and approval of this implementation:** Approved by the
+  engineer on 2026-11-24; approved for a focused schema-contract commit.

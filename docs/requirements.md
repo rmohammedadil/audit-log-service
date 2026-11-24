@@ -195,3 +195,16 @@ rule above, adds the event, and flushes without committing.
 This provides a sequential append foundation only. It does not yet offer an
 HTTP write API, mutation prevention at the database level, or coordination
 for concurrent writers.
+
+## 10. API Schema Boundary
+
+The event-create contract accepts only `eventType`, `actorId`,
+`resourceType`, `resourceId`, and object `payload`. These map to the internal
+Python names `event_type`, `actor_id`, `resource_type`, and `resource_id`.
+The API rejects extra fields, including service-owned `id`, `timestamp`,
+`previous_hash`, and `content_hash`.
+
+The persisted-event response exposes camelCase event and hash names
+(`previousHash` and `contentHash`), together with the ID and server-assigned
+timestamp. Input string limits match the database model: 128 characters for
+event/resource type and 256 characters for actor/resource ID.

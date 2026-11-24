@@ -49,6 +49,14 @@ There will be no public update or delete route. Scenario B routes will be
 designed only after archival, redaction, and export semantics are documented
 and reviewed.
 
+## API Contract Boundary
+
+`AuditEventCreate` accepts only client-owned event content using camelCase
+field names. It maps those names to the snake_case names used by the model and
+service, rejecting timestamps, IDs, hashes, and other unexpected fields.
+`AuditEventRead` maps a SQLAlchemy `AuditEvent` back to camelCase and includes
+the server-owned timestamp and integrity evidence for later API responses.
+
 ## Key Trade-offs
 
 - SQLite supports a self-contained prototype and test tampering, but is not a
