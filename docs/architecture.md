@@ -131,6 +131,21 @@ not externally anchored. Coordinated rewriting by a privileged database actor,
 concurrent append coordination, and consistent verification snapshots remain
 out of scope.
 
+## Verification API Boundary
+
+`GET /audit/verify` is a thin HTTP adapter around `verify_audit_chain`. It
+does not load, normalize, or verify event evidence itself; it serializes the
+service's structured result through a camelCase response schema. Both an
+intact result and an integrity violation use HTTP 200 because verification ran
+successfully in either case. Operational SQLAlchemy failures are rolled back
+at the request boundary, logged as static messages without exception detail,
+and returned as a generic HTTP 500.
+
+The same route module maps `AuditChainIntegrityError` during event creation to
+HTTP 409 after rollback. This distinguishes an unsafe append blocked by the
+checkpoint from an operational persistence failure, while leaving chain and
+transaction ownership in the service and HTTP layer respectively.
+
 ## Key Trade-offs
 
 - SQLite supports a self-contained prototype and test tampering, but is not a

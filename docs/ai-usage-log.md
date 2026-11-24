@@ -274,4 +274,49 @@ not represent approval or work that has not occurred.
   JSON and timestamp text and decodes each event inside the ascending-ID
   verification loop, so a later malformed record cannot prevent reporting an
   earlier hash or predecessor mismatch.
+- **Engineer review and approval of this implementation:** Approved by the
+  engineer on 2026-11-25 and committed as `ac74f04 feat: implement audit
+  chain verification and checkpoint integrity`.
+
+## Task 10 - Chain verification API
+
+- **Assessment requirement addressed:** Scenario A `GET /audit/verify`, full
+  chain-verification reporting, and direct-database modification/deletion
+  detection through the public API.
+- **Prompt record:** Expose the existing verification service without changing
+  its hashing, checkpoint, or persisted-evidence behavior. Return HTTP 200 for
+  intact and inconsistent chains, HTTP 409 for blocked unsafe appends, and a
+  sanitized HTTP 500 for operational database failures. Add proportionate
+  metadata-only logging and isolated API integration tests.
+- **Files created or modified:** `app/api/audit_routes.py`, `app/schemas.py`,
+  `tests/test_audit_routes.py`, `docs/requirements.md`,
+  `docs/architecture.md`, and this file.
+- **AI contribution:** Proposed a thin route adapter, camelCase result schema,
+  HTTP error translation, static-message logging, and direct-SQL tampering
+  integration coverage.
+- **Engineer direction accepted:** The engineer approved Task 10 on
+  2026-11-25, including the refined response, logging, and test requirements.
+- **Engineer modifications or rejections:** None recorded during
+  implementation so far.
+- **Validation performed:** `.venv\\Scripts\\python.exe -m pytest
+  tests\\test_audit_routes.py tests\\test_chain_verification.py -q` passed:
+  80 tests passed. The complete suite `.venv\\Scripts\\python.exe -m pytest
+  -q` passed: 145 tests passed. Both runs emitted one existing Starlette
+  `TestClient` deprecation warning and had no failures.
+- **Manual validation (developer-performed):** Using isolated SQLite databases
+  outside the repository, the engineer verified an empty chain in Swagger,
+  created and verified three events, and inspected persisted hashes,
+  predecessor links, and checkpoint state. The engineer created a healthy
+  SQLite backup, directly modified Event 2's payload, and confirmed HTTP 200
+  with `isIntact=false`, `checkedRecordCount=2`,
+  `firstInconsistencyId=2`, and `CONTENT_HASH_MISMATCH`. In a separate copy of
+  the healthy database, trailing deletion produced checkpoint-count detection
+  and an unsafe append was rejected with HTTP 409. An unexpected HTTP 409
+  occurred during an initial Event 2 creation attempt; subsequent testing
+  created and verified three events, but the original cause was not
+  established and no diagnosis or fix is claimed.
+- **Known limitations:** The endpoint reflects the existing service limits:
+  no external checkpoint trust anchor, concurrent-writer coordination, or
+  consistent verification snapshot. The separate `AuditEventRead`
+  whitespace-normalization concern remains unchanged.
 - **Engineer review and approval of this implementation:** Pending.

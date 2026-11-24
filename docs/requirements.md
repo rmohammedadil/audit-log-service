@@ -290,3 +290,18 @@ checkpoint together may evade detection. Existing databases with events but
 without trusted checkpoint state are not backfilled automatically; they need
 an explicit migration or fresh-database strategy. Future retention or archival
 features must retain enough evidence for verification.
+
+## 15. Chain Verification API
+
+`GET /audit/verify` exposes the read-only verification service. It returns
+HTTP 200 for both intact and inconsistent chains because an integrity failure
+is a completed verification result, not malformed client input. Its camelCase
+response includes intact status, checked-record count, an optional first
+inconsistency ID, violation type, and safe explanatory detail.
+
+Database execution failures return a sanitized HTTP 500 response. The API
+logs only static operational outcome messages and does not log payloads,
+resource identifiers, SQL, database paths, credentials, or exception details.
+When a checkpoint inconsistency blocks `POST /audit/events`, the route rolls
+back and returns HTTP 409 without appending an event. Verification and error
+handling do not repair, backfill, or otherwise mutate audit evidence.

@@ -2,19 +2,27 @@
 
 from collections.abc import Generator
 from datetime import datetime, timedelta, timezone
+import logging
 from pathlib import Path
 import re
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import Base, get_db
 from app.main import app
-from app.models import AuditEvent
-from app.services.audit_service import GENESIS_HASH, calculate_content_hash
+from app.models import AuditChainState, AuditEvent
+from app.services.audit_service import (
+    GENESIS_HASH,
+    VIOLATION_CHECKPOINT_COUNT_MISMATCH,
+    VIOLATION_CHECKPOINT_MISSING,
+    VIOLATION_CONTENT_HASH_MISMATCH,
+    VIOLATION_MALFORMED_EVENT_CONTENT,
+    calculate_content_hash,
+)
 
 
 VALID_EVENT = {
@@ -65,6 +73,40 @@ def api_client(
 def event_count(session_factory: sessionmaker[Session]) -> int:
     with session_factory() as database_session:
         return database_session.scalar(select(func.count()).select_from(AuditEvent)) or 0
+
+
+def persisted_chain_evidence(
+    session_factory: sessionmaker[Session],
+) -> tuple[list[tuple], tuple | None]:
+    """Capture persisted evidence so verification can be proven read-only."""
+
+    with session_factory() as database_session:
+        events = list(database_session.scalars(select(AuditEvent).order_by(AuditEvent.id)))
+        checkpoint = database_session.get(AuditChainState, 1)
+        event_evidence = [
+            (
+                event.id,
+                event.event_type,
+                event.actor_id,
+                event.resource_type,
+                event.resource_id,
+                event.payload,
+                event.timestamp,
+                event.previous_hash,
+                event.content_hash,
+            )
+            for event in events
+        ]
+        checkpoint_evidence = (
+            None
+            if checkpoint is None
+            else (
+                checkpoint.event_count,
+                checkpoint.head_event_id,
+                checkpoint.head_content_hash,
+            )
+        )
+    return event_evidence, checkpoint_evidence
 
 
 def test_post_event_returns_created_event_and_persists_it(
@@ -385,3 +427,201 @@ def test_get_events_returns_generic_error_when_database_read_fails(
     assert response.status_code == 500
     assert response.json() == {"detail": "Unable to retrieve audit events"}
     assert event_count(session_factory) == len(created_events)
+
+
+def test_verify_returns_camel_case_result_for_an_empty_chain(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = api_client
+
+    response = client.get("/audit/verify")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "isIntact": True,
+        "checkedRecordCount": 0,
+        "firstInconsistencyId": None,
+        "violationType": None,
+        "detail": "empty audit chain has no checkpoint state yet",
+    }
+
+
+def test_verify_returns_intact_camel_case_result_for_persisted_events(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = api_client
+    created_events = create_query_fixture_events(client)
+
+    response = client.get("/audit/verify")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["isIntact"] is True
+    assert body["checkedRecordCount"] == len(created_events)
+    assert body["firstInconsistencyId"] is None
+    assert body["violationType"] is None
+    assert "is_intact" not in body
+
+
+def test_verify_reports_direct_content_modification(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    created_events = create_query_fixture_events(client)
+
+    with session_factory() as database_session:
+        database_session.execute(
+            text("UPDATE audit_events SET payload = :payload WHERE id = :event_id"),
+            {"payload": '{"tampered":true}', "event_id": created_events[0]["id"]},
+        )
+        database_session.commit()
+
+    response = client.get("/audit/verify")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "isIntact": False,
+        "checkedRecordCount": 1,
+        "firstInconsistencyId": created_events[0]["id"],
+        "violationType": VIOLATION_CONTENT_HASH_MISMATCH,
+        "detail": "stored content hash does not match persisted event content",
+    }
+
+
+def test_verify_reports_trailing_deletion_as_checkpoint_inconsistency(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    created_events = create_query_fixture_events(client)
+
+    with session_factory() as database_session:
+        database_session.execute(
+            text("DELETE FROM audit_events WHERE id = :event_id"),
+            {"event_id": created_events[-1]["id"]},
+        )
+        database_session.commit()
+
+    response = client.get("/audit/verify")
+
+    assert response.status_code == 200
+    assert response.json()["isIntact"] is False
+    assert response.json()["checkedRecordCount"] == len(created_events) - 1
+    assert response.json()["firstInconsistencyId"] is None
+    assert response.json()["violationType"] == VIOLATION_CHECKPOINT_COUNT_MISMATCH
+
+
+def test_verify_reports_missing_checkpoint_for_existing_events(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    create_query_fixture_events(client)
+
+    with session_factory() as database_session:
+        database_session.execute(text("DELETE FROM audit_chain_state WHERE singleton_id = 1"))
+        database_session.commit()
+
+    response = client.get("/audit/verify")
+
+    assert response.status_code == 200
+    assert response.json()["isIntact"] is False
+    assert response.json()["checkedRecordCount"] == 0
+    assert response.json()["firstInconsistencyId"] is None
+    assert response.json()["violationType"] == VIOLATION_CHECKPOINT_MISSING
+
+
+@pytest.mark.parametrize(
+    ("column", "invalid_value"),
+    [
+        ("payload", "{not valid JSON"),
+        ("timestamp", "not-a-timestamp"),
+    ],
+)
+def test_verify_reports_malformed_persisted_values(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+    column: str,
+    invalid_value: str,
+) -> None:
+    client, session_factory = api_client
+    created_events = create_query_fixture_events(client)
+
+    # Values are intentionally corrupted through direct SQL to exercise the
+    # verifier's persisted-evidence path rather than application validation.
+    with session_factory() as database_session:
+        database_session.execute(
+            text(f"UPDATE audit_events SET {column} = :value WHERE id = :event_id"),
+            {"value": invalid_value, "event_id": created_events[1]["id"]},
+        )
+        database_session.commit()
+
+    response = client.get("/audit/verify")
+
+    assert response.status_code == 200
+    assert response.json()["isIntact"] is False
+    assert response.json()["checkedRecordCount"] == 2
+    assert response.json()["firstInconsistencyId"] == created_events[1]["id"]
+    assert response.json()["violationType"] == VIOLATION_MALFORMED_EVENT_CONTENT
+
+
+def test_verify_does_not_modify_persisted_events_or_checkpoint(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    create_query_fixture_events(client)
+    evidence_before = persisted_chain_evidence(session_factory)
+
+    response = client.get("/audit/verify")
+
+    assert response.status_code == 200
+    assert response.json()["isIntact"] is True
+    assert persisted_chain_evidence(session_factory) == evidence_before
+
+
+def test_blocked_append_returns_conflict_and_preserves_evidence(
+    api_client: tuple[TestClient, sessionmaker[Session]], caplog: pytest.LogCaptureFixture
+) -> None:
+    client, session_factory = api_client
+    first_response = client.post("/audit/events", json=VALID_EVENT)
+    assert first_response.status_code == 201
+
+    with session_factory() as database_session:
+        database_session.execute(
+            text("UPDATE audit_chain_state SET event_count = 99 WHERE singleton_id = 1")
+        )
+        database_session.commit()
+    evidence_before = persisted_chain_evidence(session_factory)
+
+    caplog.set_level(logging.WARNING, logger="app.api.audit_routes")
+    response = client.post(
+        "/audit/events",
+        json={**VALID_EVENT, "eventType": "PERMISSION_GRANTED"},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Audit chain integrity check failed; event was not appended"
+    }
+    assert persisted_chain_evidence(session_factory) == evidence_before
+    assert "account-123" not in caplog.text
+
+
+def test_verify_returns_sanitized_server_error_for_database_failure(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client, session_factory = api_client
+    created_events = create_query_fixture_events(client)
+    from app.api import audit_routes
+
+    def fail_verification(*args: object, **kwargs: object) -> object:
+        raise SQLAlchemyError("SELECT confidential database details")
+
+    monkeypatch.setattr(audit_routes, "verify_audit_chain", fail_verification)
+    caplog.set_level(logging.ERROR, logger="app.api.audit_routes")
+
+    response = client.get("/audit/verify")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Unable to verify audit chain"}
+    assert event_count(session_factory) == len(created_events)
+    assert "confidential database details" not in caplog.text

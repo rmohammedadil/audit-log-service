@@ -47,3 +47,20 @@ class AuditEventRead(BaseModel):
     timestamp: datetime
     previous_hash: str = Field(alias="previousHash")
     content_hash: str = Field(alias="contentHash")
+
+
+class AuditChainVerificationRead(BaseModel):
+    """Public representation of a completed chain-verification result.
+
+    This schema exposes verification metadata, not persisted event evidence.
+    It intentionally leaves the verifier's safe explanatory detail unchanged
+    while aliases keep the HTTP contract consistently camelCase.
+    """
+
+    model_config = ConfigDict(from_attributes=True, validate_by_name=True)
+
+    is_intact: bool = Field(alias="isIntact")
+    checked_record_count: int = Field(alias="checkedRecordCount")
+    first_inconsistency_id: int | None = Field(alias="firstInconsistencyId")
+    violation_type: str | None = Field(alias="violationType")
+    detail: str

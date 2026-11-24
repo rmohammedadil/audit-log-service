@@ -1,7 +1,8 @@
 
-"""HTTP endpoints for audit-event creation and retrieval."""
+"""HTTP endpoints for audit-event creation, retrieval, and verification."""
 
 from datetime import datetime
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -10,16 +11,19 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas import AuditEventCreate, AuditEventRead
+from app.schemas import AuditChainVerificationRead, AuditEventCreate, AuditEventRead
 from app.services.audit_service import (
+    AuditChainIntegrityError,
     DEFAULT_QUERY_LIMIT,
     MAX_QUERY_LIMIT,
     append_audit_event,
     query_audit_events,
+    verify_audit_chain,
 )
 
 
 router = APIRouter(prefix="/audit", tags=["audit"])
+logger = logging.getLogger(__name__)
 
 
 def _validate_filter(value: str | None, public_name: str) -> str | None:
@@ -63,9 +67,18 @@ def create_audit_event(
         )
         response = AuditEventRead.model_validate(event)
         database_session.commit()
+    except AuditChainIntegrityError:
+        database_session.rollback()
+        # Log only the outcome: checkpoint details may reveal audit evidence.
+        logger.warning("Audit append blocked by checkpoint integrity validation")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Audit chain integrity check failed; event was not appended",
+        ) from None
     except (SQLAlchemyError, ValidationError):
         database_session.rollback()
         # Database details are intentionally withheld from public responses.
+        logger.error("Audit event persistence failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to persist audit event",
@@ -136,9 +149,39 @@ def list_audit_events(
     except SQLAlchemyError:
         database_session.rollback()
         # Avoid returning driver, SQL, or database-path details to clients.
+        logger.error("Audit event retrieval failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to retrieve audit events",
         ) from None
 
     return [AuditEventRead.model_validate(event) for event in events]
+
+
+@router.get(
+    "/verify",
+    response_model=AuditChainVerificationRead,
+    response_model_by_alias=True,
+)
+def verify_audit_events(
+    database_session: Annotated[Session, Depends(get_db)],
+) -> AuditChainVerificationRead:
+    """Return the verifier's read-only integrity result for the full chain.
+
+    An inconsistent chain is a successful verification outcome, so it remains
+    HTTP 200. Only an operational database failure becomes HTTP 500. The
+    service deliberately owns verification precedence and evidence handling;
+    this route only serializes its structured result.
+    """
+
+    try:
+        result = verify_audit_chain(database_session)
+        return AuditChainVerificationRead.model_validate(result)
+    except (SQLAlchemyError, ValidationError):
+        database_session.rollback()
+        # Do not include SQL, database paths, or evidence values in the log.
+        logger.error("Audit chain verification failed during database operation")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to verify audit chain",
+        ) from None
