@@ -196,7 +196,19 @@ Existing SQLite values may be interpreted as UTC only when their origin is
 known to follow this service's UTC timestamp invariant. No migration or
 automatic repair of unknown existing data is performed.
 
-## 9. Service-Level Append Rule
+## 9. Event Write API
+
+`POST /audit/events` accepts the validated event-create contract and returns
+`201 Created` only after the append transaction commits. The route delegates
+timestamp assignment, predecessor selection, and content hashing to the
+append service; it does not duplicate those rules.
+
+The HTTP layer owns commit and rollback because it defines the request
+transaction boundary. It returns a camelCase persisted-event response,
+including server-owned ID, timestamp, predecessor hash, and content hash.
+No update or delete endpoint is exposed.
+
+## 10. Service-Level Append Rule
 
 The creation service assigns the timestamp, reads the highest persisted
 record ID, and uses that record's `content_hash` as the new event's
@@ -208,7 +220,7 @@ This provides a sequential append foundation only. It does not yet offer an
 HTTP write API, mutation prevention at the database level, or coordination
 for concurrent writers.
 
-## 10. API Schema Boundary
+## 11. API Schema Boundary
 
 The event-create contract accepts only `eventType`, `actorId`,
 `resourceType`, `resourceId`, and object `payload`. These map to the internal

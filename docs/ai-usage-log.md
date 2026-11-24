@@ -144,3 +144,36 @@ not represent approval or work that has not occurred.
   passed: 43 tests passed.
 - **Engineer review and approval of this implementation:** Approved by the
   engineer on 2026-11-24; approved for a focused UTC-persistence commit.
+
+## Task 6 - POST /audit/events write API
+
+- **Assessment requirement addressed:** Scenario A event-write API,
+  append-only public behavior, server-assigned timestamp, and end-to-end
+  creation through the API and data store.
+- **Prompt record:** Add only a request-scoped database dependency, startup
+  schema initialization, and `POST /audit/events`; reuse the existing schema
+  and append service; test against a temporary database.
+- **Prerequisite:** Task 6A corrected SQLite UTC timestamp round-tripping so
+  reloaded events remain compatible with canonical hashing.
+- **Files created or modified:** `app/database.py`, `app/main.py`,
+  `app/api/audit_routes.py`, `tests/test_audit_routes.py`,
+  `docs/requirements.md`, `docs/architecture.md`, and this file.
+- **AI contribution:** Proposed request session ownership, replaceable
+  lifespan initialization for test isolation, a creation-only route, and
+  integration tests for validation, rollback, and persisted hash consistency.
+- **Engineer direction accepted:** The engineer approved Task 6 on
+  2026-11-24 and approved the Task 6A prerequisite before work resumed.
+- **Engineer modifications or rejections:** None recorded at this point.
+- **Validation performed:** `.venv\\Scripts\\python.exe -m pytest
+  tests\\test_audit_routes.py -q` passed: 17 tests passed. The full suite
+  `.venv\\Scripts\\python.exe -m pytest -q` passed: 60 tests passed. Both
+  runs reported one existing Starlette `TestClient` deprecation warning about
+  the installed `httpx` integration; there were no test failures.
+- **Manual validation:** The engineer manually exercised `POST /audit/events`
+  through Swagger UI, created two events, confirmed predecessor-hash linkage,
+  and verified both records in SQLite.
+- **Known limitations:** This task provides only creation. Querying,
+  verification, concurrent-writer coordination, retention, redaction, and
+  export remain out of scope.
+- **Engineer review and approval of this implementation:** Approved by the
+  engineer on 2026-11-24, subject to final validation and a focused commit.

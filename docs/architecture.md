@@ -64,6 +64,20 @@ service, rejecting timestamps, IDs, hashes, and other unexpected fields.
 `AuditEventRead` maps a SQLAlchemy `AuditEvent` back to camelCase and includes
 the server-owned timestamp and integrity evidence for later API responses.
 
+## Write Request Lifecycle
+
+`POST /audit/events` validates JSON as `AuditEventCreate`, obtains a
+request-scoped SQLAlchemy session through dependency injection, and delegates
+record construction to `append_audit_event`. The service flushes to build a
+complete record; the route validates the response, then commits. On a
+persistence failure, the route rolls back and returns a generic error without
+exposing database details. The session dependency closes the session in all
+cases.
+
+The application lifespan creates prototype tables through a replaceable
+initializer. API tests replace that initializer and the session dependency,
+using a temporary SQLite database rather than the project database.
+
 ## Key Trade-offs
 
 - SQLite supports a self-contained prototype and test tampering, but is not a
