@@ -169,5 +169,17 @@ when their implementation task is approved:
 | Area | Working decision | Reason |
 | --- | --- | --- |
 | Chain order | Database-assigned increasing record ID | Deterministic even when timestamps are equal. |
-| Hash inputs | Event fields, server timestamp, and record ID; exclude mutable operational metadata | Binds immutable event identity and content. |
+| Hash inputs | Required event fields and normalized server timestamp; exclude database ID, `previous_hash`, and mutable operational metadata | Avoids a persistence cycle while keeping content hashing independent from the chain link. |
 | Time filtering | Inclusive `from`/`to` UTC bounds | Predictable API semantics. |
+
+## 8. Canonical Content-Hash Rule
+
+The content hash covers exactly `eventType`, `actorId`, `resourceType`,
+`resourceId`, `payload`, and `timestamp`. It does not cover the database ID
+or `previous_hash`; the latter is stored separately as the chain link.
+
+The hash input is UTF-8 encoded JSON with sorted object keys, compact
+separators (`,` and `:`), and non-ASCII characters preserved. The timestamp
+must be timezone-aware, is converted to UTC, and is serialized with six
+fractional-second digits and a `Z` suffix. SHA-256 of those bytes produces a
+lowercase 64-character hexadecimal digest.

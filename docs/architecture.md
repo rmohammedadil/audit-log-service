@@ -15,7 +15,7 @@ from the HTTP interface.
 | `app/main.py` | Creates the FastAPI application and registers API routes. |
 | `app/api/audit_routes.py` | Defines audit endpoints and translates requests/responses. |
 | `app/schemas.py` | Defines request and response validation schemas. |
-| `app/services/audit_service.py` | Creates chained records, performs queries, and verifies integrity. |
+| `app/services/audit_service.py` | Canonicalizes event content and calculates content hashes; later tasks will add chain writes, queries, and verification. |
 | `app/models.py` | Defines persisted audit events and later archival/redaction metadata. |
 | `app/database.py` | Configures the SQLite engine, sessions, and declarative base. |
 | `tests/` | Covers service rules, API behavior, and direct-database tamper scenarios. |
@@ -23,8 +23,11 @@ from the HTTP interface.
 ## Scenario A Data Model (Proposed)
 
 An audit event will have a database ID, event fields, a UTC timestamp, the
-previous-record hash, and a SHA-256 content hash. The record ID is the chain
-sequence. The content hash will use canonical JSON for deterministic hashing.
+previous-record hash, and a SHA-256 content hash. The database ID orders the
+chain, but it is not part of the content hash because it is unavailable until
+the row is persisted. The content hash covers the required event fields and a
+normalized UTC timestamp using canonical JSON. The predecessor hash remains a
+separate chain link.
 
 The database is intentionally not assumed to be trusted: verification
 recomputes hashes from stored values and checks every predecessor link. The

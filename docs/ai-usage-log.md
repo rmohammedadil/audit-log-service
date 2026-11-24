@@ -49,4 +49,27 @@ not represent approval or work that has not occurred.
 - **Engineer modifications or rejections:** None recorded at this point.
 - **Validation performed:** `.venv\\Scripts\\python.exe -m pytest
   tests\\test_models.py -q` passed: 3 tests passed.
-- **Engineer review and approval of this implementation:** Pending.
+- **Engineer review and approval of this implementation:** Approved by the
+  engineer on 2026-11-24; committed as `15f5ae2 feat: add audit event
+  persistence model`.
+
+## Task 3 - Canonical audit-event content hashing
+
+- **Assessment requirement addressed:** Scenario A deterministic content
+  hashing for the required event fields, while retaining `previous_hash` as a
+  separate chain link.
+- **Prompt record:** Implement only canonical event-content serialization and
+  SHA-256 hashing. Exclude the database ID and `previous_hash`; do not add
+  chain appending, database writes, API routes, queries, or verification.
+- **Files created or modified:** `app/services/audit_service.py`,
+  `tests/test_hashing.py`, `docs/requirements.md`,
+  `docs/architecture.md`, and this file.
+- **AI contribution:** Proposed one canonical JSON representation, explicit
+  UTC timestamp normalization, pure hashing functions, and focused tests.
+- **Engineer direction accepted:** The engineer approved the Task 3 plan on
+  2026-11-24, including the requirement for explainable code comments.
+- **Engineer modifications or rejections:** None recorded at this point.
+- **Validation performed:** `.venv\\Scripts\\python.exe -m pytest
+  tests\\test_hashing.py -q` passed: 9 tests passed.
+- **Engineer review and approval of this implementation:** Approved by the
+  engineer on 2026-11-24; approved for a focused hashing commit.
