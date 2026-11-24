@@ -235,8 +235,18 @@ The API rejects extra fields, including service-owned `id`, `timestamp`,
 
 The persisted-event response exposes camelCase event and hash names
 (`previousHash` and `contentHash`), together with the ID and server-assigned
-timestamp. Input string limits match the database model: 128 characters for
-event/resource type and 256 characters for actor/resource ID.
+timestamp. Create input trims surrounding whitespace, rejects blank values,
+and enforces database-aligned limits: 128 characters for event/resource type
+and 256 characters for actor/resource ID.
+
+For persisted response evidence, `eventType`, `actorId`, `resourceType`, and
+`resourceId` are plain strings. They preserve stored whitespace, empty values,
+and values beyond incoming-request limits rather than applying business-input
+normalization during serialization. The OpenAPI create schema retains its
+string constraints; the read schema intentionally exposes those four fields as
+unconstrained strings. This preserves observable evidence but does not make
+every malformed record retrievable: malformed JSON, timestamps, nulls, and
+incompatible types remain separate concerns.
 
 ## 12. Service-Level Event Querying
 

@@ -96,11 +96,15 @@ translates service validation failures to HTTP 422, and converts retrieval
 failures to a generic HTTP 500. It delegates all SQLAlchemy filtering and
 ordering to the query service and serializes models through `AuditEventRead`.
 
-`AuditEventRead` shares trimmed string constraints with creation input. Current
-write validation prevents those fields from containing outer whitespace, but a
-directly tampered database value could be normalized in a read response. This
-task preserves the existing schema contract; a future tamper-evidence review
-should consider an evidence-preserving read representation.
+Creation schemas normalize and validate untrusted input, while `AuditEventRead`
+preserves the persisted `event_type`, `actor_id`, `resource_type`, and
+`resource_id` strings exactly as stored. This prevents a GET response from
+trimming, rejecting, or silently rewriting direct database tampering. Returning
+that evidence does not establish that it is trustworthy: within the existing
+same-database checkpoint trust boundary, `verify_audit_chain` reports supported
+content-hash, predecessor-link, and checkpoint inconsistencies. This
+read-schema boundary does not make malformed JSON, timestamps, nulls, or other
+incompatible persisted values serializable.
 
 ## Chain Checkpoint and Verification Boundary
 

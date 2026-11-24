@@ -39,10 +39,12 @@ class AuditEventRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, validate_by_name=True)
 
     id: int
-    event_type: EventType = Field(alias="eventType")
-    actor_id: ActorId = Field(alias="actorId")
-    resource_type: ResourceType = Field(alias="resourceType")
-    resource_id: ResourceId = Field(alias="resourceId")
+    # Persisted evidence must be serialized exactly as stored; request-only
+    # normalization would hide direct database tampering from API consumers.
+    event_type: str = Field(alias="eventType")
+    actor_id: str = Field(alias="actorId")
+    resource_type: str = Field(alias="resourceType")
+    resource_id: str = Field(alias="resourceId")
     payload: dict[str, Any]
     timestamp: datetime
     previous_hash: str = Field(alias="previousHash")

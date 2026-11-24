@@ -33,6 +33,28 @@ VALID_EVENT = {
     "payload": {"changed_fields": ["address"]},
 }
 
+EVIDENCE_STRING_FIELD_SPECS = [
+    ("event_type", "eventType", 128),
+    ("actor_id", "actorId", 256),
+    ("resource_type", "resourceType", 128),
+    ("resource_id", "resourceId", 256),
+]
+
+
+def persisted_string_value(case: str, maximum_length: int) -> str:
+    """Return a direct-SQL modification value for evidence-preservation tests."""
+
+    values = {
+        "normal": "tampered-value",
+        "leading": "  tampered-value",
+        "trailing": "tampered-value  ",
+        "surrounding": "  tampered-value  ",
+        "whitespace": "   ",
+        "empty": "",
+        "overlength": "x" * (maximum_length + 1),
+    }
+    return values[case]
+
 
 @pytest.fixture()
 def api_client(
@@ -625,3 +647,51 @@ def test_verify_returns_sanitized_server_error_for_database_failure(
     assert response.json() == {"detail": "Unable to verify audit chain"}
     assert event_count(session_factory) == len(created_events)
     assert "confidential database details" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("column_name", "public_name", "maximum_length"),
+    EVIDENCE_STRING_FIELD_SPECS,
+)
+@pytest.mark.parametrize(
+    "case",
+    ["normal", "leading", "trailing", "surrounding", "whitespace", "empty", "overlength"],
+)
+def test_get_events_preserves_directly_modified_string_evidence(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+    column_name: str,
+    public_name: str,
+    maximum_length: int,
+    case: str,
+) -> None:
+    client, session_factory = api_client
+    created_response = client.post("/audit/events", json=VALID_EVENT)
+    assert created_response.status_code == 201
+    created_event = created_response.json()
+    tampered_value = persisted_string_value(case, maximum_length)
+
+    # Column names come from the fixed parameter list above, never client input.
+    with session_factory() as database_session:
+        database_session.execute(
+            text(f"UPDATE audit_events SET {column_name} = :value WHERE id = :event_id"),
+            {"value": tampered_value, "event_id": created_event["id"]},
+        )
+        database_session.commit()
+    evidence_before_get = persisted_chain_evidence(session_factory)
+
+    get_response = client.get("/audit/events")
+
+    assert get_response.status_code == 200
+    returned_event = get_response.json()[0]
+    assert returned_event[public_name] == tampered_value
+    assert "event_type" not in returned_event
+    assert returned_event["contentHash"] == created_event["contentHash"]
+    assert returned_event["previousHash"] == created_event["previousHash"]
+    assert persisted_chain_evidence(session_factory) == evidence_before_get
+
+    verify_response = client.get("/audit/verify")
+
+    assert verify_response.status_code == 200
+    assert verify_response.json()["isIntact"] is False
+    assert verify_response.json()["violationType"] == VIOLATION_CONTENT_HASH_MISMATCH
+    assert verify_response.json()["firstInconsistencyId"] == created_event["id"]

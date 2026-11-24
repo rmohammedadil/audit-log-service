@@ -371,3 +371,37 @@ not represent approval or work that has not occurred.
   manual troubleshooting, not a Codex execution; the underlying Windows
   permission configuration was not diagnosed or repaired.
 - **Engineer review and approval of this implementation:** Pending.
+
+## Task 12 - Evidence-preserving response schemas
+
+- **Engineering improvement:** Supports Scenario A audit-evidence fidelity by
+  preserving observable persisted audit evidence in GET responses without
+  weakening untrusted create-input validation. It is not recorded as a newly
+  stated original assessment requirement.
+- **Prompt record:** Separate the four persisted event string response fields
+  from create-schema normalization. Preserve API aliases and existing
+  verification behavior; add focused schema and isolated API tampering tests.
+- **Files created or modified:** `app/schemas.py`, `tests/test_schemas.py`,
+  `tests/test_audit_routes.py`, `docs/requirements.md`,
+  `docs/architecture.md`, and this file.
+- **AI contribution:** Identified that `AuditEventRead` reused
+  `strip_whitespace`, nonempty, and maximum-length constraints intended for
+  incoming input; proposed plain read-side strings and parameterized coverage.
+- **Engineer direction accepted:** The engineer approved Task 12 on
+  2026-11-25.
+- **Implementation decision:** `AuditEventCreate` retains all constrained
+  aliases and extra-field rejection. Only `AuditEventRead`'s event type,
+  actor ID, resource type, and resource ID are plain strings, so persisted
+  evidence is returned literally. Chain verification remains independent and
+  unchanged.
+- **Validation performed:** Focused schema and API tests using an external
+  disposable pytest base directory passed: 141 tests passed with one existing
+  Starlette `TestClient` deprecation warning. The complete suite using a fresh
+  external disposable pytest base directory passed: 213 tests passed with the
+  same existing warning and no failures.
+- **Known limitations:** This preserves the four affected string fields only.
+  It does not make malformed JSON, timestamps, nulls, or incompatible database
+  types retrievable, and it does not make modified evidence trustworthy.
+- **Engineer review and approval of this implementation:** Application code,
+  test code, and documentation approved by the engineer on 2026-11-25; final
+  validation and commit approval in progress.
