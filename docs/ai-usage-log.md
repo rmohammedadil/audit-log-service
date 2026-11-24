@@ -119,3 +119,28 @@ not represent approval or work that has not occurred.
   passed: 40 tests passed.
 - **Engineer review and approval of this implementation:** Approved by the
   engineer on 2026-11-24; approved for a focused schema-contract commit.
+
+## Task 6A - UTC timestamp persistence prerequisite
+
+- **Assessment requirement addressed:** Scenario A timestamp integrity and
+  reliable content-hash reproduction after persisted events are read back.
+- **Blocker:** SQLite returned timezone-naive datetimes after persistence even
+  though the model declared `DateTime(timezone=True)`. The canonical hashing
+  contract correctly rejects naive timestamps.
+- **Approved scope expansion:** The engineer approved a model-level
+  `TypeDecorator` and focused persistence tests before implementation of the
+  Task 6 HTTP write API.
+- **Files created or modified:** `app/models.py`, `tests/test_models.py`,
+  `docs/requirements.md`, `docs/architecture.md`, and this file.
+- **AI contribution:** Identified the SQLite round-trip behavior, proposed a
+  UTC-normalizing type decorator, and added reload-based hash-consistency
+  tests.
+- **Engineer modifications or rejections:** None recorded at this point.
+- **Validation performed:** The first focused run identified a test-isolation
+  issue: an expired model ID was accessed after detachment. The test was
+  corrected to retain the ID before the reload. The rerun of
+  `.venv\\Scripts\\python.exe -m pytest tests\\test_models.py -q` passed:
+  6 tests passed. The full suite `.venv\\Scripts\\python.exe -m pytest -q`
+  passed: 43 tests passed.
+- **Engineer review and approval of this implementation:** Approved by the
+  engineer on 2026-11-24; approved for a focused UTC-persistence commit.

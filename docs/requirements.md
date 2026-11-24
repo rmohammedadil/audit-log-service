@@ -184,6 +184,18 @@ must be timezone-aware, is converted to UTC, and is serialized with six
 fractional-second digits and a `Z` suffix. SHA-256 of those bytes produces a
 lowercase 64-character hexadecimal digest.
 
+### Timestamp persistence invariant
+
+SQLite does not preserve timezone metadata for `DateTime(timezone=True)`.
+Audit timestamps are therefore normalized to UTC before persistence and
+restored with `timezone.utc` after SQLite retrieval. Naive timestamps are
+rejected. This preserves the exact UTC instant and microsecond precision used
+by canonical hashing.
+
+Existing SQLite values may be interpreted as UTC only when their origin is
+known to follow this service's UTC timestamp invariant. No migration or
+automatic repair of unknown existing data is performed.
+
 ## 9. Service-Level Append Rule
 
 The creation service assigns the timestamp, reads the highest persisted

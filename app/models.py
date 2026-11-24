@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import JSON, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.types import TypeDecorator
 
 from app.database import Base
 
@@ -13,6 +14,47 @@ def utc_now() -> datetime:
     """Return the server's current UTC timestamp for a new audit event."""
 
     return datetime.now(timezone.utc)
+
+
+class UtcDateTime(TypeDecorator[datetime]):
+    """Persist timezone-aware values as UTC and restore UTC on retrieval.
+
+    SQLite stores ``DateTime`` values without timezone metadata, even when
+    SQLAlchemy is configured with ``timezone=True``. The service invariant is
+    that audit timestamps are UTC, so SQLite values are stored as UTC-naive
+    text and re-attached to ``timezone.utc`` when read. This preserves the
+    exact instant and microseconds required to reproduce a content hash.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(
+        self, value: datetime | None, dialect: object
+    ) -> datetime | None:
+        """Reject ambiguous values and normalize aware values before storage."""
+
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timestamp must include timezone information")
+
+        utc_value = value.astimezone(timezone.utc)
+        if getattr(dialect, "name", None) == "sqlite":
+            # SQLite cannot retain offset data, so persist UTC without it.
+            return utc_value.replace(tzinfo=None)
+        return utc_value
+
+    def process_result_value(
+        self, value: datetime | None, dialect: object
+    ) -> datetime | None:
+        """Restore the UTC invariant after SQLite returns a naive datetime."""
+
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
 
 class AuditEvent(Base):
@@ -31,7 +73,7 @@ class AuditEvent(Base):
     resource_id: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
     payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utc_now, index=True
+        UtcDateTime(), nullable=False, default=utc_now, index=True
     )
     previous_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)

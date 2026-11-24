@@ -39,6 +39,13 @@ prior content hash as the new predecessor, or `AUDIT_LOG_GENESIS_V1` for the
 first record. It flushes rather than commits so an HTTP layer can decide
 whether the request transaction should be committed or rolled back.
 
+SQLite does not retain timezone offsets for regular SQLAlchemy datetimes. A
+small `UtcDateTime` type normalizes aware values to UTC, stores SQLite values
+without offset metadata, and restores `timezone.utc` on retrieval. This is
+necessary because a reloaded timestamp must produce the same content hash as
+the original event. The invariant applies only to rows known to originate
+from this service; unknown legacy values are not migrated or repaired.
+
 ## API Direction (Proposed)
 
 - `POST /audit/events`: append one validated event.
