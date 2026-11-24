@@ -73,3 +73,26 @@ not represent approval or work that has not occurred.
   tests\\test_hashing.py -q` passed: 9 tests passed.
 - **Engineer review and approval of this implementation:** Approved by the
   engineer on 2026-11-24; approved for a focused hashing commit.
+
+## Task 4 - Service-level audit-event append
+
+- **Assessment requirement addressed:** Scenario A event creation,
+  append-only service behavior, server-assigned timestamps, genesis handling,
+  and predecessor linkage.
+- **Prompt record:** Implement only a service-level append operation that
+  creates and flushes one hash-linked event. Do not add routes, queries,
+  verification, update/delete behavior, or concurrent-writer coordination.
+- **Files created or modified:** `app/services/audit_service.py`,
+  `tests/test_audit_service.py`, `docs/requirements.md`,
+  `docs/architecture.md`, and this file.
+- **AI contribution:** Proposed the transaction-controlled append function,
+  genesis constant, predecessor lookup, focused in-memory SQLite tests, and
+  explainability comments.
+- **Engineer direction accepted:** The engineer approved the Task 4 plan on
+  2026-11-24.
+- **Engineer modifications or rejections:** None recorded at this point.
+- **Validation performed:** `.venv\\Scripts\\python.exe -m pytest
+  tests\\test_audit_service.py tests\\test_hashing.py tests\\test_models.py
+  -q` passed: 16 tests passed.
+- **Engineer review and approval of this implementation:** Approved by the
+  engineer on 2026-11-24; approved for a focused append-service commit.

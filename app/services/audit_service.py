@@ -13,6 +13,14 @@ from hashlib import sha256
 import json
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models import AuditEvent, utc_now
+
+
+GENESIS_HASH = "AUDIT_LOG_GENESIS_V1"
+
 
 def normalize_timestamp(timestamp: datetime) -> str:
     """Return an unambiguous, fixed-precision UTC representation.
@@ -88,3 +96,54 @@ def calculate_content_hash(
         timestamp=timestamp,
     )
     return sha256(canonical_content).hexdigest()
+
+
+def append_audit_event(
+    session: Session,
+    *,
+    event_type: str,
+    actor_id: str,
+    resource_type: str,
+    resource_id: str,
+    payload: dict[str, Any],
+) -> AuditEvent:
+    """Append one hash-linked event to the caller's active transaction.
+
+    The timestamp is chosen here rather than accepted from a caller, ensuring
+    the value used for persistence is also the value hashed. ``flush`` assigns
+    the database ID and makes this event visible to a later append in the same
+    transaction, while leaving commit or rollback under the caller's control.
+
+    This prototype intentionally has no concurrent-writer coordination yet;
+    a later production-oriented task must serialize tail selection and insert.
+    """
+
+    latest_event = session.scalar(
+        select(AuditEvent).order_by(AuditEvent.id.desc()).limit(1)
+    )
+    previous_hash = (
+        latest_event.content_hash if latest_event is not None else GENESIS_HASH
+    )
+    timestamp = utc_now()
+    content_hash = calculate_content_hash(
+        event_type=event_type,
+        actor_id=actor_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        payload=payload,
+        timestamp=timestamp,
+    )
+
+    event = AuditEvent(
+        event_type=event_type,
+        actor_id=actor_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        payload=payload,
+        timestamp=timestamp,
+        previous_hash=previous_hash,
+        content_hash=content_hash,
+    )
+    session.add(event)
+    session.flush()
+    return event

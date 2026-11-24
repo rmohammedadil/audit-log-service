@@ -15,7 +15,7 @@ from the HTTP interface.
 | `app/main.py` | Creates the FastAPI application and registers API routes. |
 | `app/api/audit_routes.py` | Defines audit endpoints and translates requests/responses. |
 | `app/schemas.py` | Defines request and response validation schemas. |
-| `app/services/audit_service.py` | Canonicalizes event content and calculates content hashes; later tasks will add chain writes, queries, and verification. |
+| `app/services/audit_service.py` | Canonicalizes and hashes event content, then appends a sequential record to a caller-controlled transaction; later tasks will add API routes, queries, verification, and concurrent-writer coordination. |
 | `app/models.py` | Defines persisted audit events and later archival/redaction metadata. |
 | `app/database.py` | Configures the SQLite engine, sessions, and declarative base. |
 | `tests/` | Covers service rules, API behavior, and direct-database tamper scenarios. |
@@ -33,6 +33,11 @@ The database is intentionally not assumed to be trusted: verification
 recomputes hashes from stored values and checks every predecessor link. The
 prototype detects tampering; it does not prevent a privileged attacker from
 rewriting the entire database and chain.
+
+The append operation selects the latest persisted event by ID. It uses the
+prior content hash as the new predecessor, or `AUDIT_LOG_GENESIS_V1` for the
+first record. It flushes rather than commits so an HTTP layer can decide
+whether the request transaction should be committed or rolled back.
 
 ## API Direction (Proposed)
 

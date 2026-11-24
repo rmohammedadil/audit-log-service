@@ -183,3 +183,15 @@ separators (`,` and `:`), and non-ASCII characters preserved. The timestamp
 must be timezone-aware, is converted to UTC, and is serialized with six
 fractional-second digits and a `Z` suffix. SHA-256 of those bytes produces a
 lowercase 64-character hexadecimal digest.
+
+## 9. Service-Level Append Rule
+
+The creation service assigns the timestamp, reads the highest persisted
+record ID, and uses that record's `content_hash` as the new event's
+`previous_hash`. When no prior event exists, it uses the fixed genesis value
+`AUDIT_LOG_GENESIS_V1`. It calculates the content hash through the canonical
+rule above, adds the event, and flushes without committing.
+
+This provides a sequential append foundation only. It does not yet offer an
+HTTP write API, mutation prevention at the database level, or coordination
+for concurrent writers.
