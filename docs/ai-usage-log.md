@@ -177,3 +177,25 @@ not represent approval or work that has not occurred.
   export remain out of scope.
 - **Engineer review and approval of this implementation:** Approved by the
   engineer on 2026-11-24, subject to final validation and a focused commit.
+
+## Task 7 - Service-level audit-event querying
+
+- **Assessment requirement addressed:** Scenario A querying with combined
+  filters, inclusive time ranges, deterministic ordering, and pagination.
+- **Prompt record:** Implement only a read-only SQLAlchemy query service; use
+  optional AND-composed filters, UTC-normalized timestamps, and validated
+  limit/offset pagination. Do not add an HTTP query endpoint.
+- **Files created or modified:** `app/services/audit_service.py`,
+  `tests/test_audit_service.py`, `docs/requirements.md`,
+  `docs/architecture.md`, and this file.
+- **AI contribution:** Proposed the parameterized SQLAlchemy query, timestamp
+  validation, pagination safeguards, and focused filter-composition tests.
+- **Engineer direction accepted:** The engineer approved Task 7 on
+  2026-11-24.
+- **Engineer modifications or rejections:** None recorded at this point.
+- **Validation performed:** `.venv\\Scripts\\python.exe -m pytest
+  tests\\test_audit_service.py -q` passed: 19 tests passed. The full suite
+  `.venv\\Scripts\\python.exe -m pytest -q` passed: 75 tests passed with one
+  existing Starlette `TestClient` deprecation warning and no test failures.
+- **Engineer review and approval of this implementation:** Approved by the
+  engineer on 2026-11-24; approved for a focused query-service commit.

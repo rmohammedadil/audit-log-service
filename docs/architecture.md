@@ -78,6 +78,15 @@ The application lifespan creates prototype tables through a replaceable
 initializer. API tests replace that initializer and the session dependency,
 using a temporary SQLite database rather than the project database.
 
+## Query Service Boundary
+
+The query service builds a SQLAlchemy `select` statement with optional,
+parameterized predicates for each supported filter. It normalizes time bounds
+to UTC, applies filters before ascending-ID offset/limit pagination, and uses
+`session.no_autoflush` to avoid flushing a caller's unrelated pending changes.
+It returns persisted model objects only; HTTP query parsing and response
+serialization are deferred to a later task.
+
 ## Key Trade-offs
 
 - SQLite supports a self-contained prototype and test tampering, but is not a

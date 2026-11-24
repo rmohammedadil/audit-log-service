@@ -1,9 +1,9 @@
 
-"""Pure audit-event hashing primitives.
+"""Audit-event hashing, append, and query service operations.
 
-Database writes and predecessor selection intentionally belong to a later
-service task. Keeping this module free of persistence concerns makes the
-exact bytes covered by a content hash straightforward to test and explain.
+Provides deterministic content hashing, hash-linked event creation,
+and filtered, paginated retrieval. Transaction ownership remains
+with the caller.
 """
 
 from __future__ import annotations
@@ -20,6 +20,8 @@ from app.models import AuditEvent, utc_now
 
 
 GENESIS_HASH = "AUDIT_LOG_GENESIS_V1"
+DEFAULT_QUERY_LIMIT = 100
+MAX_QUERY_LIMIT = 1000
 
 
 def normalize_timestamp(timestamp: datetime) -> str:
@@ -147,3 +149,72 @@ def append_audit_event(
     session.add(event)
     session.flush()
     return event
+
+
+def _normalize_query_timestamp(timestamp: datetime, parameter_name: str) -> datetime:
+    """Reject ambiguous query bounds and compare all valid bounds in UTC."""
+
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise ValueError(f"{parameter_name} must include timezone information")
+    return timestamp.astimezone(timezone.utc)
+
+
+def query_audit_events(
+    session: Session,
+    *,
+    actor_id: str | None = None,
+    resource_type: str | None = None,
+    resource_id: str | None = None,
+    event_type: str | None = None,
+    from_timestamp: datetime | None = None,
+    to_timestamp: datetime | None = None,
+    limit: int = DEFAULT_QUERY_LIMIT,
+    offset: int = 0,
+) -> list[AuditEvent]:
+    """Return matching audit events in deterministic order without mutations.
+
+    SQLAlchemy builds parameterized predicates for each supplied filter. This
+    keeps the filters composable with AND semantics and avoids manually built
+    SQL. Filtering precedes ascending-ID pagination so equal inputs always
+    produce the same page.
+    """
+
+    if not 1 <= limit <= MAX_QUERY_LIMIT:
+        raise ValueError(f"limit must be between 1 and {MAX_QUERY_LIMIT}")
+    if offset < 0:
+        raise ValueError("offset must be greater than or equal to 0")
+
+    normalized_from = (
+        _normalize_query_timestamp(from_timestamp, "from_timestamp")
+        if from_timestamp is not None
+        else None
+    )
+    normalized_to = (
+        _normalize_query_timestamp(to_timestamp, "to_timestamp")
+        if to_timestamp is not None
+        else None
+    )
+    if normalized_from is not None and normalized_to is not None:
+        if normalized_from > normalized_to:
+            raise ValueError("from_timestamp must not be after to_timestamp")
+
+    statement = select(AuditEvent)
+    if actor_id is not None:
+        statement = statement.where(AuditEvent.actor_id == actor_id)
+    if resource_type is not None:
+        statement = statement.where(AuditEvent.resource_type == resource_type)
+    if resource_id is not None:
+        statement = statement.where(AuditEvent.resource_id == resource_id)
+    if event_type is not None:
+        statement = statement.where(AuditEvent.event_type == event_type)
+    if normalized_from is not None:
+        statement = statement.where(AuditEvent.timestamp >= normalized_from)
+    if normalized_to is not None:
+        statement = statement.where(AuditEvent.timestamp <= normalized_to)
+
+    statement = statement.order_by(AuditEvent.id.asc()).limit(limit).offset(offset)
+
+    # Suppressing autoflush keeps this helper read-only even for caller sessions
+    # that contain unrelated pending objects.
+    with session.no_autoflush:
+        return list(session.scalars(statement))

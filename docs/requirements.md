@@ -232,3 +232,16 @@ The persisted-event response exposes camelCase event and hash names
 (`previousHash` and `contentHash`), together with the ID and server-assigned
 timestamp. Input string limits match the database model: 128 characters for
 event/resource type and 256 characters for actor/resource ID.
+
+## 12. Service-Level Event Querying
+
+The query service accepts optional `actor_id`, `resource_type`, `resource_id`,
+`event_type`, `from_timestamp`, and `to_timestamp` filters. Supplied filters
+are combined with AND semantics through SQLAlchemy expressions. Resource type
+and resource ID may be used independently or together.
+
+Timestamp bounds are timezone-aware, normalized to UTC, and inclusive. Results
+are ordered by ascending record ID, then paginated with a default limit of 100,
+a maximum limit of 1000, and default offset 0. The service rejects naive or
+inverted time bounds and invalid pagination values. It remains read-only and
+does not yet expose an HTTP query endpoint.

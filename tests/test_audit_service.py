@@ -1,6 +1,6 @@
 """Tests for service-level, append-only audit-event creation."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine, func, select
@@ -12,6 +12,7 @@ from app.services.audit_service import (
     GENESIS_HASH,
     append_audit_event,
     calculate_content_hash,
+    query_audit_events,
 )
 
 
@@ -107,3 +108,168 @@ def test_append_flushes_without_committing(session: Session) -> None:
 
     persisted_count = session.scalar(select(func.count()).select_from(AuditEvent))
     assert persisted_count == 0
+
+
+@pytest.fixture()
+def seeded_events(session: Session) -> list[AuditEvent]:
+    """Persist varied records so query tests exercise independent filters."""
+
+    timestamps = [
+        datetime(2026, 11, 24, 9, 0, tzinfo=timezone.utc),
+        datetime(2026, 11, 24, 10, 0, tzinfo=timezone.utc),
+        datetime(2026, 11, 24, 11, 0, tzinfo=timezone.utc),
+        datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc),
+    ]
+    events = [
+        AuditEvent(
+            event_type="USER_LOGIN",
+            actor_id="actor-a",
+            resource_type="client_account",
+            resource_id="account-1",
+            payload={},
+            timestamp=timestamps[0],
+            previous_hash="AUDIT_LOG_GENESIS_V1",
+            content_hash="a" * 64,
+        ),
+        AuditEvent(
+            event_type="RECORD_UPDATED",
+            actor_id="actor-b",
+            resource_type="client_account",
+            resource_id="account-2",
+            payload={},
+            timestamp=timestamps[1],
+            previous_hash="a" * 64,
+            content_hash="b" * 64,
+        ),
+        AuditEvent(
+            event_type="USER_LOGIN",
+            actor_id="actor-a",
+            resource_type="session",
+            resource_id="session-1",
+            payload={},
+            timestamp=timestamps[2],
+            previous_hash="b" * 64,
+            content_hash="c" * 64,
+        ),
+        AuditEvent(
+            event_type="PERMISSION_GRANTED",
+            actor_id="actor-b",
+            resource_type="client_account",
+            resource_id="account-1",
+            payload={},
+            timestamp=timestamps[3],
+            previous_hash="c" * 64,
+            content_hash="d" * 64,
+        ),
+    ]
+    session.add_all(events)
+    session.commit()
+    return events
+
+
+def event_ids(events: list[AuditEvent]) -> list[int]:
+    return [event.id for event in events]
+
+
+def test_query_without_filters_returns_persisted_events_in_id_order(
+    session: Session, seeded_events: list[AuditEvent]
+) -> None:
+    events = query_audit_events(session)
+
+    assert event_ids(events) == event_ids(seeded_events)
+    assert all(isinstance(event, AuditEvent) for event in events)
+
+
+@pytest.mark.parametrize(
+    ("filters", "expected_ids"),
+    [
+        ({"actor_id": "actor-a"}, [1, 3]),
+        ({"resource_type": "client_account"}, [1, 2, 4]),
+        ({"resource_id": "account-1"}, [1, 4]),
+        ({"event_type": "USER_LOGIN"}, [1, 3]),
+        (
+            {
+                "actor_id": "actor-b",
+                "resource_type": "client_account",
+                "resource_id": "account-1",
+                "event_type": "PERMISSION_GRANTED",
+            },
+            [4],
+        ),
+    ],
+)
+def test_query_filters_individually_and_in_combination(
+    session: Session,
+    seeded_events: list[AuditEvent],
+    filters: dict[str, str],
+    expected_ids: list[int],
+) -> None:
+    events = query_audit_events(session, **filters)
+
+    assert event_ids(events) == expected_ids
+
+
+def test_query_time_range_is_inclusive_and_normalizes_timezones(
+    session: Session, seeded_events: list[AuditEvent]
+) -> None:
+    india_time = timezone(timedelta(hours=5, minutes=30))
+    events = query_audit_events(
+        session,
+        from_timestamp=datetime(2026, 11, 24, 15, 30, tzinfo=india_time),
+        to_timestamp=datetime(2026, 11, 24, 16, 30, tzinfo=india_time),
+    )
+
+    assert event_ids(events) == [2, 3]
+
+
+@pytest.mark.parametrize(
+    ("from_timestamp", "to_timestamp", "message"),
+    [
+        (datetime(2026, 11, 24, 9, 0), None, "from_timestamp"),
+        (None, datetime(2026, 11, 24, 9, 0), "to_timestamp"),
+        (
+            datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc),
+            datetime(2026, 11, 24, 9, 0, tzinfo=timezone.utc),
+            "must not be after",
+        ),
+    ],
+)
+def test_query_rejects_invalid_time_bounds(
+    session: Session,
+    from_timestamp: datetime | None,
+    to_timestamp: datetime | None,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        query_audit_events(
+            session,
+            from_timestamp=from_timestamp,
+            to_timestamp=to_timestamp,
+        )
+
+
+def test_query_applies_pagination_after_filtering(
+    session: Session, seeded_events: list[AuditEvent]
+) -> None:
+    events = query_audit_events(session, resource_type="client_account", limit=2, offset=1)
+    empty_page = query_audit_events(session, limit=2, offset=10)
+
+    assert event_ids(events) == [2, 4]
+    assert empty_page == []
+
+
+@pytest.mark.parametrize(
+    ("limit", "offset", "message"),
+    [(0, 0, "limit"), (1001, 0, "limit"), (1, -1, "offset")],
+)
+def test_query_rejects_invalid_pagination(
+    session: Session, limit: int, offset: int, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        query_audit_events(session, limit=limit, offset=offset)
+
+
+def test_query_returns_empty_list_when_no_records_match(
+    session: Session, seeded_events: list[AuditEvent]
+) -> None:
+    assert query_audit_events(session, actor_id="missing-actor") == []
