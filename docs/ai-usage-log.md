@@ -320,3 +320,54 @@ not represent approval or work that has not occurred.
   consistent verification snapshot. The separate `AuditEventRead`
   whitespace-normalization concern remains unchanged.
 - **Engineer review and approval of this implementation:** Pending.
+
+## Task 11 - Repository readiness and documentation
+
+- **Assessment requirement addressed:** Repository reproducibility, current
+  setup and operational documentation, Scenario A status consistency, and
+  transparent AI-assisted engineering evidence.
+- **Prompt record:** Make a clean checkout reproducible without the existing
+  virtual environment, runtime database, or untracked files. Pin only verified
+  direct dependencies, document setup and safe manual testing, correct stale
+  Scenario A documentation, and validate in a fresh detached worktree.
+- **Files created or modified:** `requirements.txt`, `.gitignore`, package
+  initialization files, `README.md`, `docs/requirements.md`,
+  `docs/architecture.md`, and this file.
+- **AI contribution:** Identified the missing committed dependency manifest,
+  stale README/status language, and insufficient runtime database exclusions;
+  proposed exact direct pins based on the tested Python 3.12 environment and a
+  detached-worktree validation approach.
+- **Engineer direction accepted:** The engineer approved Task 11 on
+  2026-11-25, with fresh-environment installation and HTTP smoke validation.
+- **Engineering decisions:** The manifest pins only direct application and
+  test dependencies known to pass, not a full `pip freeze`. This improves
+  repeatability but is not a transitive lock file or hash-verified supply
+  chain. Existing package versions are retained, including the known
+  TestClient deprecation warning.
+- **Validation performed:** The existing Python 3.12.7 project environment
+  matched the pinned direct dependencies and passed `pip check`. A detached
+  worktree outside the repository received the exact staged Task 11 patch and
+  used a newly created Python 3.12.7 virtual environment. `python -m pip
+  install -r requirements.txt` and `python -m pip check` passed. Importing
+  `app.main` passed; a temporary Uvicorn server in that worktree returned HTTP
+  200 for `/health`, `/docs`, and `/openapi.json`, with `/audit/verify` present
+  in OpenAPI. The first `python -m pytest -q` attempt had 49 setup errors
+  because pytest could not enumerate a permission-restricted shared Windows
+  temporary directory; this was an environment permission issue, not a test
+  failure. Rerunning unchanged tests with `python -m pytest -q --basetemp
+  .pytest_cache\\task11-basetemp` confined temporary files to the ignored
+  worktree cache and passed: 145 tests passed with one existing Starlette
+  `TestClient` deprecation warning.
+- **Developer manual regression troubleshooting:** The developer separately
+  ran the suite on Windows and observed two filesystem permission failures:
+  pytest could not access the default `AppData/Local/Temp/pytest-of-asif2`
+  directory, and an override to `.pytest_cache/local-test-temp` also failed.
+  Each execution reported 96 passed tests and 49 setup errors. The developer
+  then created a fresh writable directory outside the repository and ran
+  `mkdir -p /c/Charles_Schwab/pytest-temp` followed by `python -m pytest -q
+  -p no:cacheprovider --basetemp
+  "C:/Charles_Schwab/pytest-temp/run-$(date +%Y%m%d-%H%M%S)"`. The developer
+  confirmed that this regression suite passed. This was developer-performed
+  manual troubleshooting, not a Codex execution; the underlying Windows
+  permission configuration was not diagnosed or repaired.
+- **Engineer review and approval of this implementation:** Pending.

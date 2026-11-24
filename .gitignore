@@ -20,3 +20,25 @@ htmlcov/
 
 # IDE settings
 .vscode/
+.idea/
+
+# Local SQLite runtime, disposable test databases, and sidecar files
+audit_log.db
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.db.bak
+*.sqlite.bak
+*.sqlite3.bak
+*.db.backup
+*.sqlite.backup
+*.sqlite3.backup

@@ -116,20 +116,25 @@ These questions will be resolved and documented as the design develops.
 
 ### Scenario A
 
-- [ ] Persist an immutable audit-event model with a monotonic record ID,
+- [x] Persist an immutable audit-event model with a monotonic record ID,
   event fields, previous hash, and content hash.
-- [ ] Define validated request and response schemas, with the server assigning
+- [x] Define validated request and response schemas, with the server assigning
   UTC timestamps.
-- [ ] Implement `POST /audit/events` as the sole creation path; do not add
+- [x] Implement `POST /audit/events` as the sole creation path; do not add
   public update or delete endpoints.
-- [ ] Implement `GET /audit/events` with all required filters, deterministic
+- [x] Implement `GET /audit/events` with all required filters, deterministic
   ordering, and limit/offset pagination.
-- [ ] Use canonical JSON, SHA-256, and a fixed genesis value to create
+- [x] Use canonical JSON, SHA-256, and a fixed genesis value to create
   deterministic content hashes and predecessor links.
-- [ ] Implement `GET /audit/verify` to report an intact chain or the first
+- [x] Implement `GET /audit/verify` to report an intact chain or the first
   inconsistent record and violation type.
-- [ ] Test normal writes and queries, direct-database modification detection,
+- [x] Test normal writes and queries, direct-database modification detection,
   and direct-database deletion detection.
+
+Scenario A is conditionally accepted based on implemented behavior, automated
+validation, and developer-performed manual validation. It remains subject to
+independent reconciliation with the original assessment source, which could
+not be parsed in the local review environment.
 
 ### Scenario B
 
@@ -216,9 +221,9 @@ record ID, and uses that record's `content_hash` as the new event's
 `AUDIT_LOG_GENESIS_V1`. It calculates the content hash through the canonical
 rule above, adds the event, and flushes without committing.
 
-This provides a sequential append foundation only. It does not yet offer an
-HTTP write API, mutation prevention at the database level, or coordination
-for concurrent writers.
+The append service underpins the HTTP write API, which owns commit and rollback
+at the request boundary. The prototype does not provide database-level
+mutation prevention or coordination for concurrent writers.
 
 ## 11. API Schema Boundary
 
@@ -244,7 +249,7 @@ Timestamp bounds are timezone-aware, normalized to UTC, and inclusive. Results
 are ordered by ascending record ID, then paginated with a default limit of 100,
 a maximum limit of 1000, and default offset 0. The service rejects naive or
 inverted time bounds and invalid pagination values. It remains read-only and
-does not yet expose an HTTP query endpoint.
+is exposed through the HTTP query endpoint described below.
 
 ## 13. Event Query API
 
@@ -280,8 +285,8 @@ content.
 
 Appending to a nonempty chain requires a checkpoint whose count and tail match
 the persisted events. Inconsistency raises the domain-specific
-`AuditChainIntegrityError`; HTTP status mapping is deferred to the future
-verification endpoint. Operational database failures are not classified as
+`AuditChainIntegrityError`; the write route maps this to HTTP 409 after
+rollback. Operational database failures are not classified as
 integrity violations and propagate to the caller.
 
 The checkpoint is stored in the same database and is not an external trust

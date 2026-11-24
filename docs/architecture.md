@@ -15,7 +15,7 @@ from the HTTP interface.
 | `app/main.py` | Creates the FastAPI application and registers API routes. |
 | `app/api/audit_routes.py` | Defines audit endpoints and translates requests/responses. |
 | `app/schemas.py` | Defines request and response validation schemas. |
-| `app/services/audit_service.py` | Canonicalizes and hashes event content, then appends a sequential record to a caller-controlled transaction; later tasks will add API routes, queries, verification, and concurrent-writer coordination. |
+| `app/services/audit_service.py` | Canonicalizes and hashes event content, appends records with checkpoint updates, queries events, and verifies persisted chains. Concurrent-writer coordination remains deferred. |
 | `app/models.py` | Defines persisted audit events and later archival/redaction metadata. |
 | `app/database.py` | Configures the SQLite engine, sessions, and declarative base. |
 | `tests/` | Covers service rules, API behavior, and direct-database tamper scenarios. |
@@ -84,8 +84,8 @@ The query service builds a SQLAlchemy `select` statement with optional,
 parameterized predicates for each supported filter. It normalizes time bounds
 to UTC, applies filters before ascending-ID offset/limit pagination, and uses
 `session.no_autoflush` to avoid flushing a caller's unrelated pending changes.
-It returns persisted model objects only; HTTP query parsing and response
-serialization are deferred to a later task.
+It returns persisted model objects only; the existing HTTP route parses public
+query parameters and serializes those results through `AuditEventRead`.
 
 ## Query API Boundary
 
