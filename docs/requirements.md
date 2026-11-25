@@ -614,4 +614,12 @@ execution, image exclusions, and cleanup. No image is published and no
 production secret is supplied. The initial remote dependency scan found
 vulnerable PyJWT 2.10.1 and cryptography 46.0.5 pins; PyJWT 2.15.0 and
 cryptography 50.0.0 are the targeted remediation. A successful post-remediation
-remote GitHub Actions run remains pending.
+remote GitHub Actions run was confirmed by the developer. This acceptance
+review could not independently retrieve its run ID or per-job logs.
+
+## 31. Final acceptance validation
+
+Final acceptance uses a requirements-to-evidence matrix in `docs/testing.md`.
+It distinguishes automated local evidence, developer-confirmed remote CI, and
+checks whose detailed remote logs could not be retrieved. Acceptance does not
+alter the documented prototype limitations or claim production certification.

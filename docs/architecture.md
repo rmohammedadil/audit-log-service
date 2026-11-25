@@ -401,3 +401,12 @@ cryptography 46.0.5 direct pins; the only application dependency changes are
 PyJWT 2.15.0 and cryptography 50.0.0. PYSEC-2025-183 is documented as disputed
 by the PyJWT supplier and lists no fixed version, so remediation acceptance
 depends on the updated strict scanner result rather than an assumed resolution.
+
+## Task 31 acceptance evidence boundary
+
+`docs/testing.md` maps implemented behavior to isolated automated coverage and
+developer-reported manual/remote validation. The local acceptance review could
+confirm commit alignment but could not retrieve the successful GitHub Actions
+run ID or per-job logs because its GitHub credential was invalid and public API
+access was unavailable. Those results are recorded as developer-confirmed, not
+independently verified remote evidence.

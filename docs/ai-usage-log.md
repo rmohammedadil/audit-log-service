@@ -419,6 +419,26 @@ not represent approval or work that has not occurred.
   database checksum remained unchanged. A post-remediation remote CI run is
   still required to validate the GitHub-hosted environment.
 
+## Task 31 - Final end-to-end acceptance validation
+
+- **Repository/CI evidence:** Local `main` and `origin/main` matched at
+  `82d88adc658b3a55e7bc008ef3023c40cdcf5597`. The developer confirmed a
+  successful post-remediation GitHub Actions pipeline. Codex could not retrieve
+  a run ID, job breakdown, or Docker logs: the configured GitHub CLI credential
+  was invalid and the unauthenticated Actions API returned 404.
+- **Acceptance evidence:** A new external disposable pytest base directory ran
+  24 selected API, crypto, reporting, and operational tests with temporary
+  credentials and isolated SQLite databases: all passed with one existing
+  TestClient deprecation warning. Full regression/security results are recorded
+  after execution. No historical database is used for tampering tests.
+
+- **Final local validation:** The complete regression suite passed: 341 tests
+  with one existing TestClient deprecation warning. `compileall`, `pip check`,
+  strict `pip-audit --requirement requirements.txt --strict`, and `git diff
+  --check` passed. The local scan reported no known vulnerabilities and the
+  historical database checksum matched its baseline. No application defect was
+  found; remote CI job-level evidence remains unavailable to this review.
+
 ## Task 27 - Transactional write idempotency
 
 - **AI contribution:** Added writer-scoped fingerprints, atomic replay mapping,
