@@ -793,3 +793,39 @@ not represent approval or work that has not occurred.
   endpoints are intended for trusted local assessment use until access control
   is separately approved.
 - **Engineer review and approval of this implementation:** Pending.
+
+## Task 32.3 - Comprehensive low-level system design documentation
+
+- **AI contribution:** Added `docs/system-design.md` as a low-level design
+  document based on source inspection of initialization, configuration,
+  routes, schemas, models, services, hashing, verification, lifecycle
+  metadata, exports, signing, offline verification, JWT/RBAC, idempotency,
+  telemetry, and tests.
+- **Documentation decisions:** Kept `docs/architecture.md` as the high-level
+  component/deployment view and documented internal algorithms, fields,
+  transaction boundaries, error behavior, complexity, trade-offs, and source
+  traceability in the new system-design document. Added the ten requested
+  implementation-aligned Mermaid diagrams. No application behavior was
+  changed.
+- **Validation status:** Source cross-check and Markdown structure review were
+  performed. The document contains ten Mermaid blocks and no private keys,
+  credentials, or database values. No regression tests were run because this
+  was documentation-only work. The initial environment check used the system
+  Python and could not import SQLAlchemy. The engineer-directed follow-up used
+  `.venv\Scripts\python.exe` successfully: Python 3.12.7, SQLAlchemy 2.1.9,
+  and `pip check` reported no broken requirements. The real canonicalization
+  and hash functions then calculated a fixed three-event example twice with
+  identical canonical JSON, content hashes, chain hashes, and checkpoint. A
+  one-field modification of event 2 produced a different content hash. No
+  database or verifier execution was claimed for that illustrative tamper
+  explanation.
+- **Engineer review status:** Implementation and factual review are pending;
+  no commit or push has been performed.
+- **Observed source-comment drift (not changed):** The runtime implementation
+  enforces regulator authorization for access reports, but the
+  `list_access_reports()` docstring still says authorization is deferred.
+  Some older lifecycle model comments also describe now-implemented behavior
+  as future work, and the offline verifier module docstring still says it uses
+  only the standard library despite importing `cryptography` for trusted
+  Ed25519 verification. These comments do not change runtime behavior; they
+  are recorded for a separate source-comment maintenance task.
