@@ -156,6 +156,18 @@ class AuditEventRedaction(Base):
     )
 
 
+class AuditEventIdempotency(Base):
+    """Writer-scoped replay mapping; request content is never stored here."""
+
+    __tablename__ = "audit_event_idempotency"
+    __table_args__ = (UniqueConstraint("writer_subject", "idempotency_key", name="uq_audit_event_idempotency_writer_key"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    writer_subject: Mapped[str] = mapped_column(String(256), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_id: Mapped[int] = mapped_column(ForeignKey("audit_events.id", ondelete="RESTRICT"), nullable=False, unique=True)
+
+
 class AuditChainState(Base):
     """Singleton checkpoint for the expected end of the audit chain.
 

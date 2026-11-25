@@ -359,3 +359,13 @@ Signing is optional for compatibility but fail-closed when configured. Private
 keys are filesystem paths outside the repository; public keys are independently
 trusted verifier inputs, never embedded trust anchors. This is not external
 anchoring, rotation, revocation, or individual event signing.
+
+## Task 27 idempotency boundary
+
+The additive idempotency table is unique by writer/key and references one
+event. SQLite write coordination serializes attempts; replay checks fingerprint
+and full chain before returning a masked event.
+
+The request fingerprint covers validated client fields, including payload, but
+not server-assigned identifiers or timestamps. Idempotency metadata is mutable
+same-database state and therefore shares the checkpoint trust boundary.

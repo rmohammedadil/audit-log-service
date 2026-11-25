@@ -566,3 +566,14 @@ bundles. Ed25519 signs `audit-export-ed25519-v1:` followed by the ASCII bundle
 digest; digest excludes both digest and signature fields. Offline verification
 requires an independently trusted public PEM. Missing/invalid signing config
 fails export rather than downgrading. Unsigned v1 compatibility remains.
+
+## 27. Transactional idempotent creation
+
+Optional Idempotency-Key mappings are scoped to the JWT writer subject and
+store a validated-request SHA-256 fingerprint plus event reference. Mapping,
+event, and checkpoint commit together. Replay verifies integrity and applies
+current redaction; mappings share the same-database trust boundary.
+
+Malformed keys alone are HTTP 422. Internal failures remain sanitized HTTP 500;
+raw keys and request payloads are not logged. SQLite coordination serializes
+local writers but does not provide cross-process or distributed guarantees.

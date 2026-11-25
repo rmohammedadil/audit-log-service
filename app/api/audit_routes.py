@@ -5,7 +5,7 @@ from datetime import datetime
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Header, Response
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import select
@@ -29,12 +29,13 @@ from app.services.audit_service import (
     DEFAULT_QUERY_LIMIT,
     MAX_QUERY_LIMIT,
     append_audit_event,
+    find_idempotent_event, idempotency_fingerprint, IdempotencyConflictError, IdempotencyKeyValidationError, MAX_IDEMPOTENCY_KEY_LENGTH,
     query_audit_events,
     query_access_reports,
     verify_audit_chain,
 )
 from app.services.retention_service import RetentionRunResult, run_retention
-from app.models import AuditEventRedaction
+from app.models import AuditEventRedaction, AuditEventIdempotency
 from app.services.redaction_service import (
     RedactionNotFoundError,
     RedactionResult,
@@ -73,6 +74,8 @@ def create_audit_event(
     event_input: AuditEventCreate,
     database_session: Annotated[Session, Depends(get_db)],
     _: Annotated[AuthenticatedIdentity, Depends(require_roles("writer"))],
+    response_object: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=MAX_IDEMPOTENCY_KEY_LENGTH)] = None,
 ) -> AuditEventRead:
     """Create one audit event and commit only after its response validates.
 
@@ -82,6 +85,17 @@ def create_audit_event(
 
     try:
         begin_write_transaction(database_session)
+        if idempotency_key is not None:
+            if not idempotency_key.strip() or not all(c.isalnum() or c in ".:_-" for c in idempotency_key):
+                raise IdempotencyKeyValidationError("Idempotency-Key is invalid")
+            fingerprint = idempotency_fingerprint(event_type=event_input.event_type, actor_id=event_input.actor_id, resource_type=event_input.resource_type, resource_id=event_input.resource_id, payload=event_input.payload)
+            existing = find_idempotent_event(database_session, writer_subject=_.subject, key=idempotency_key, fingerprint=fingerprint)
+            if existing is not None:
+                paths = list(database_session.scalars(select(AuditEventRedaction.json_pointer).where(AuditEventRedaction.target_event_id == existing.id)))
+                replay = AuditEventRead.model_validate(existing)
+                if paths: replay = replay.model_copy(update={"payload": masked_payload(existing.payload, sorted(paths))})
+                response_object.status_code = status.HTTP_200_OK
+                return replay
         event = append_audit_event(
             database_session,
             event_type=event_input.event_type,
@@ -90,6 +104,9 @@ def create_audit_event(
             resource_id=event_input.resource_id,
             payload=event_input.payload,
         )
+        if idempotency_key is not None:
+            database_session.add(AuditEventIdempotency(writer_subject=_.subject, idempotency_key=idempotency_key, request_fingerprint=fingerprint, event_id=event.id))
+            database_session.flush()
         response = AuditEventRead.model_validate(event)
         database_session.commit()
     except AuditChainIntegrityError:
@@ -99,6 +116,17 @@ def create_audit_event(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Audit chain integrity check failed; event was not appended",
+        ) from None
+    except IdempotencyConflictError:
+        database_session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Idempotency key conflicts with a different request") from None
+    except IdempotencyKeyValidationError:
+        # Header validation occurs after the SQLite write lock is acquired, so
+        # explicitly roll back before returning the client validation result.
+        database_session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Idempotency-Key is invalid",
         ) from None
     except (SQLAlchemyError, ValidationError):
         database_session.rollback()

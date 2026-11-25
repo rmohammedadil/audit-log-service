@@ -419,6 +419,16 @@ needs to be retained.
 
 ## Retrieval integrity boundary
 
+## Idempotent event creation
+
+Writers may send `Idempotency-Key`; an identical retry returns the original
+event without another append, while different content returns HTTP 409.
+
+## Idempotent event creation
+
+Writers may send `Idempotency-Key`; an identical retry returns the original
+event without another append, while different content returns HTTP 409.
+
 ## Signed export bundles
 
 Optional signing uses `AUDIT_EXPORT_PRIVATE_KEY_PATH` pointing to an Ed25519

@@ -69,6 +69,7 @@ EXPECTED_DATABASE_COLUMNS = {
         "redaction_reason",
         "redaction_action_event_id",
     },
+    "audit_event_idempotency": {"id", "writer_subject", "idempotency_key", "request_fingerprint", "event_id"},
 }
 
 
@@ -110,17 +111,20 @@ def preflight_database_schema(database_engine: Engine) -> None:
     inspector = inspect(database_engine)
     existing_tables = set(inspector.get_table_names())
     audit_tables = set(EXPECTED_DATABASE_COLUMNS)
+    additive_tables = {"audit_event_idempotency"}
     present_audit_tables = {
         table_name for table_name in existing_tables if table_name.startswith("audit_")
     }
     if not present_audit_tables:
         return
-    if present_audit_tables != audit_tables:
+    if present_audit_tables not in (audit_tables, audit_tables - additive_tables):
         raise IncompatibleAuditDatabaseError(
             "incompatible audit database schema: configure AUDIT_DB_PATH to a fresh V3 database"
         )
 
     for table_name, expected_columns in EXPECTED_DATABASE_COLUMNS.items():
+        if table_name not in present_audit_tables:
+            continue
         actual_columns = {column["name"] for column in inspector.get_columns(table_name)}
         if actual_columns != expected_columns:
             raise IncompatibleAuditDatabaseError(

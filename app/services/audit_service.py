@@ -24,6 +24,7 @@ from app.models import (
     AuditEvent,
     AuditEventArchive,
     AuditEventRedaction,
+    AuditEventIdempotency,
     utc_now,
 )
 
@@ -63,6 +64,7 @@ REDACTION_REASON_CODES = frozenset(
 )
 REDACTION_MARKER = "[REDACTED]"
 MAX_REDACTION_PATHS = 50
+MAX_IDEMPOTENCY_KEY_LENGTH = 128
 CLIENT_ACCOUNT_ACCESS = "CLIENT_ACCOUNT_ACCESS"
 ACCESS_RESOURCE_TYPE = "customer_account"
 ACCESS_OPERATIONS = frozenset({"READ", "UPDATE", "DELETE", "CREATE"})
@@ -87,6 +89,36 @@ class AuditChainIntegrityError(Exception):
     belongs to the verification API task so non-HTTP callers retain the same
     transaction ownership and error semantics.
     """
+
+
+class IdempotencyConflictError(Exception):
+    """Raised when a writer reuses a key with different request content."""
+
+
+class IdempotencyKeyValidationError(Exception):
+    """Raised only for a malformed client-provided idempotency key."""
+
+
+def idempotency_fingerprint(*, event_type: str, actor_id: str, resource_type: str, resource_id: str, payload: dict[str, Any]) -> str:
+    """Hash validated client fields only; never persist or log raw content."""
+    return sha256(json.dumps({"eventType": event_type, "actorId": actor_id, "resourceType": resource_type,
+                              "resourceId": resource_id, "payload": payload}, sort_keys=True,
+                             separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest()
+
+
+def find_idempotent_event(session: Session, *, writer_subject: str, key: str, fingerprint: str) -> AuditEvent | None:
+    mapping = session.scalar(select(AuditEventIdempotency).where(AuditEventIdempotency.writer_subject == writer_subject, AuditEventIdempotency.idempotency_key == key))
+    if mapping is None:
+        return None
+    if mapping.request_fingerprint != fingerprint:
+        raise IdempotencyConflictError("idempotency key conflicts with a different request")
+    verification = verify_audit_chain(session)
+    if not verification.is_intact:
+        raise AuditChainIntegrityError("audit integrity cannot be trusted for replay")
+    event = session.get(AuditEvent, mapping.event_id)
+    if event is None:
+        raise AuditChainIntegrityError("idempotency mapping cannot be trusted")
+    return event
 
 
 class ReservedLifecycleEventTypeError(ValueError):

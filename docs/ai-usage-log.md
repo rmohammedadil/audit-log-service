@@ -378,6 +378,20 @@ not represent approval or work that has not occurred.
   permission configuration was not diagnosed or repaired.
 - **Engineer review and approval of this implementation:** Pending.
 
+## Task 27 - Transactional write idempotency
+
+- **AI contribution:** Added writer-scoped fingerprints, atomic replay mapping,
+  conflict handling, and additive V3 initialization.
+
+- **Review correction:** Added genuine concurrent API coverage and narrowed
+  idempotency validation error mapping so unrelated internal ValueError cases
+  retain sanitized HTTP 500 behavior.
+
+- **Developer validation:** Focused tests passed: 12 in 3.54 seconds. Full
+  regression passed: 334 in 36.85 seconds, with one existing deprecation
+  warning and zero failures. The developer confirmed concurrent same-key,
+  rollback, redacted replay, corruption, isolation, and compatibility coverage.
+
 ## Task 23 - Essential production hardening
 
 - **AI contribution:** Added safe request telemetry, request IDs, readiness,

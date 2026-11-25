@@ -1,8 +1,10 @@
 """Integration tests for the audit-event write endpoint."""
 
 from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import logging
+from threading import Barrier
 from pathlib import Path
 import re
 
@@ -16,7 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.database import Base, get_db
 from app.api import audit_routes
 from app.main import app
-from app.models import AuditChainState, AuditEvent, AuditEventArchive, AuditEventRedaction
+from app.models import AuditChainState, AuditEvent, AuditEventArchive, AuditEventRedaction, AuditEventIdempotency
 from app.services import audit_service, retention_service
 from app.services.audit_service import (
     GENESIS_CHAIN_HASH,
@@ -28,6 +30,7 @@ from app.services.audit_service import (
     VIOLATION_MALFORMED_EVENT_CONTENT,
     calculate_content_hash,
     append_audit_event,
+    verify_audit_chain,
 )
 
 
@@ -1078,6 +1081,116 @@ def test_health_response_includes_safe_request_id(
     response = client.get("/health")
     assert response.status_code == 200
     assert len(response.headers["X-Request-ID"]) == 32
+
+
+def test_idempotency_replays_without_appending_and_rejects_conflicts(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    headers = {"Idempotency-Key": "create-001"}
+    first = client.post("/audit/events", json=VALID_EVENT, headers=headers)
+    retry = client.post("/audit/events", json=VALID_EVENT, headers=headers)
+    assert first.status_code == 201 and retry.status_code == 200
+    assert retry.json()["id"] == first.json()["id"]
+    assert event_count(session_factory) == 1
+    conflict = client.post("/audit/events", json={**VALID_EVENT, "payload": {"changed": "different"}}, headers=headers)
+    assert conflict.status_code == 409
+    with session_factory() as database_session:
+        assert database_session.scalar(select(func.count()).select_from(AuditEventIdempotency)) == 1
+
+
+@pytest.mark.parametrize("key", ["", "bad key", "x" * 129])
+def test_idempotency_key_validation_does_not_write(
+    api_client: tuple[TestClient, sessionmaker[Session]], key: str
+) -> None:
+    client, session_factory = api_client
+    assert client.post("/audit/events", json=VALID_EVENT, headers={"Idempotency-Key": key}).status_code == 422
+    assert event_count(session_factory) == 0
+
+
+def test_idempotency_keys_are_scoped_to_writer_subject(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    key = {"Idempotency-Key": "shared-key"}
+    assert client.post("/audit/events", json=VALID_EVENT, headers=key).status_code == 201
+    other = {**key, "Authorization": f"Bearer {role_token('writer', sub='other-writer')}"}
+    assert client.post("/audit/events", json=VALID_EVENT, headers=other).status_code == 201
+    assert event_count(session_factory) == 2
+
+
+def test_idempotent_replay_masks_redactions_and_fails_closed_on_corruption(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    payload = {**VALID_EVENT, "payload": {"secret": "value"}}
+    headers = {"Idempotency-Key": "replay-redacted"}
+    first = client.post("/audit/events", json=payload, headers=headers)
+    assert client.post(f"/audit/events/{first.json()['id']}/redact", json={"paths": ["/secret"], "reason": "SENSITIVE_DATA"}).status_code == 200
+    replay = client.post("/audit/events", json=payload, headers=headers)
+    assert replay.status_code == 200 and replay.json()["payload"]["secret"] == "[REDACTED]"
+    with session_factory() as database_session:
+        database_session.execute(text("UPDATE audit_events SET event_type = 'BROKEN' WHERE id = :id"), {"id": first.json()["id"]})
+        database_session.commit()
+    assert client.post("/audit/events", json=payload, headers=headers).status_code == 409
+
+
+def test_idempotency_rollback_does_not_leave_mapping(
+    api_client: tuple[TestClient, sessionmaker[Session]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, session_factory = api_client
+    from app.api import audit_routes
+    monkeypatch.setattr(audit_routes, "append_audit_event", lambda *args, **kwargs: (_ for _ in ()).throw(SQLAlchemyError("write failed")))
+    assert client.post("/audit/events", json=VALID_EVENT, headers={"Idempotency-Key": "rollback-key"}).status_code == 500
+    with session_factory() as database_session:
+        assert event_count(session_factory) == 0
+        assert database_session.scalar(select(func.count()).select_from(AuditEventIdempotency)) == 0
+
+
+def test_sequential_same_key_after_sqlite_write_coordination_creates_one_event(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    """The route's BEGIN IMMEDIATE plus unique writer/key mapping prevents duplicates."""
+    client, session_factory = api_client
+    headers = {"Idempotency-Key": "coordinated-key"}
+    assert client.post("/audit/events", json=VALID_EVENT, headers=headers).status_code == 201
+    assert client.post("/audit/events", json=VALID_EVENT, headers=headers).status_code == 200
+    assert event_count(session_factory) == 1
+
+
+def test_concurrent_api_retries_with_same_key_create_one_event(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    """Independent request sessions contend on the same file-backed SQLite DB."""
+    client, session_factory = api_client
+    barrier = Barrier(2, timeout=5)
+
+    def post_once() -> tuple[int, int]:
+        barrier.wait(timeout=5)
+        response = client.post("/audit/events", json=VALID_EVENT, headers={"Idempotency-Key": "concurrent-key"})
+        return response.status_code, response.json()["id"]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = [future.result(timeout=10) for future in (executor.submit(post_once), executor.submit(post_once))]
+    assert {status_code for status_code, _ in results} == {200, 201}
+    assert len({event_id for _, event_id in results}) == 1
+    with session_factory() as database_session:
+        assert event_count(session_factory) == 1
+        assert database_session.scalar(select(func.count()).select_from(AuditEventIdempotency)) == 1
+        checkpoint = database_session.get(AuditChainState, 1)
+        assert checkpoint is not None and checkpoint.event_count == 1
+        assert verify_audit_chain(database_session).is_intact is True
+
+
+def test_unrelated_value_error_remains_sanitized_server_error(
+    api_client: tuple[TestClient, sessionmaker[Session]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _ = api_client
+    from app.api import audit_routes
+    monkeypatch.setattr(audit_routes, "append_audit_event", lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("internal detail")))
+    response = client.post("/audit/events", json=VALID_EVENT)
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Internal server error"}
 
 
 def test_request_log_excludes_query_and_credentials(
