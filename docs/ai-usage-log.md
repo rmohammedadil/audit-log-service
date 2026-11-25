@@ -400,6 +400,25 @@ not represent approval or work that has not occurred.
   exact 200/201/401 response contracts rather than accepting any successful
   2xx response. Remote Docker validation remains pending.
 
+- **Remote CI finding and remediation:** The first remote `pip-audit` job
+  failed with 33 findings that included repeated advisory identifiers for PyJWT
+  2.10.1 and cryptography 46.0.5. Local and remote results differed because
+  the vulnerability advisory data is time-dependent. PyJWT 2.15.0 and
+  cryptography 50.0.0 were selected from the reported fixed versions after
+  confirming Python 3.12 availability. PYSEC-2025-183 is separately recorded:
+  OSV marks versions through 2.10.1 as affected, notes the supplier disputes
+  the weak-key characterization, and lists no fixed version. The post-update
+  strict scan, focused security tests, and full regression results are recorded
+  only after execution; a passing remote CI run remains pending.
+
+- **Validation performed:** Focused JWT/RBAC and export-signing coverage passed:
+  30 tests, with 118 unrelated tests deselected and one existing TestClient
+  deprecation warning. The complete suite passed: 341 tests with that same
+  warning. `compileall` and `pip check` passed. The updated strict `pip-audit`
+  scan reported no known vulnerabilities for `requirements.txt`. The historical
+  database checksum remained unchanged. A post-remediation remote CI run is
+  still required to validate the GitHub-hosted environment.
+
 ## Task 27 - Transactional write idempotency
 
 - **AI contribution:** Added writer-scoped fingerprints, atomic replay mapping,

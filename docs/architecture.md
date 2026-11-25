@@ -394,3 +394,10 @@ trap. Its generated keys and bearer tokens remain process-local and are never
 printed. CI validates a single SQLite container only; it does not establish
 multi-replica correctness, registry security, image provenance, or a production
 secrets-management solution.
+
+The dependency-security job is an external-state gate because its advisory
+database changes over time. A remote scan identified the prior PyJWT 2.10.1 and
+cryptography 46.0.5 direct pins; the only application dependency changes are
+PyJWT 2.15.0 and cryptography 50.0.0. PYSEC-2025-183 is documented as disputed
+by the PyJWT supplier and lists no fixed version, so remediation acceptance
+depends on the updated strict scanner result rather than an assumed resolution.

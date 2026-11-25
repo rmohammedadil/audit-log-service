@@ -61,6 +61,11 @@ the active virtual environment explicitly.
 this project. Direct pins are not a complete transitive dependency lock or a
 hash-verified software supply chain.
 
+The JWT and Ed25519 dependencies are pinned at PyJWT 2.15.0 and cryptography
+50.0.0 following a remote CI vulnerability scan. CI runs strict `pip-audit`
+against the declared requirements; its advisory database is time-dependent, so
+the latest successful remote scan remains the release gate.
+
 ## Setup
 
 ### Windows PowerShell

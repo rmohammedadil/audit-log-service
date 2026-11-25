@@ -611,4 +611,7 @@ uses runtime-generated test-only JWT values. It verifies liveness/readiness,
 Swagger/OpenAPI, protected-route rejection, authenticated event creation,
 chain verification, data persistence across container recreation, non-root
 execution, image exclusions, and cleanup. No image is published and no
-production secret is supplied. Remote GitHub Actions execution remains pending.
+production secret is supplied. The initial remote dependency scan found
+vulnerable PyJWT 2.10.1 and cryptography 46.0.5 pins; PyJWT 2.15.0 and
+cryptography 50.0.0 are the targeted remediation. A successful post-remediation
+remote GitHub Actions run remains pending.
