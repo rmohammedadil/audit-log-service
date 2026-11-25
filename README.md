@@ -419,6 +419,36 @@ needs to be retained.
 
 ## Retrieval integrity boundary
 
+## Signed export bundles
+
+Optional signing uses `AUDIT_EXPORT_PRIVATE_KEY_PATH` pointing to an Ed25519
+private PEM outside this repository.
+
+```bash
+python -m app.generate_export_keys --private C:/keys/audit-private.pem --public C:/keys/audit-public.pem
+python -m app.verify_export bundle.json --public-key C:/keys/audit-public.pem
+```
+
+Signed v2 bundles include Ed25519 algorithm, key ID, and base64 signature. The
+signature covers `audit-export-ed25519-v1:` plus the canonical lowercase digest;
+the digest excludes `bundleDigest` and `signature`. Unsigned v1 remains valid
+for internal/digest verification, but cannot be signature-verified.
+
+## Signed export bundles
+
+Optional signing uses `AUDIT_EXPORT_PRIVATE_KEY_PATH` pointing to an Ed25519
+private PEM outside this repository.
+
+```bash
+python -m app.generate_export_keys --private C:/keys/audit-private.pem --public C:/keys/audit-public.pem
+python -m app.verify_export bundle.json --public-key C:/keys/audit-public.pem
+```
+
+Signed v2 bundles include Ed25519 algorithm, key ID, and base64 signature. The
+signature covers `audit-export-ed25519-v1:` plus the canonical lowercase digest;
+the digest excludes `bundleDigest` and `signature`. Unsigned v1 remains valid
+for internal/digest verification, but cannot be signature-verified.
+
 `GET /audit/events` verifies the full persisted chain before returning any
 payload. An inconsistency returns HTTP 409 instead of potentially exposing an
 unmasked value; use `GET /audit/verify` for diagnosis.

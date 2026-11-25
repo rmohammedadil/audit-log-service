@@ -558,3 +558,11 @@ Retrieval now performs full chain verification before returning event payloads.
 This prevents disguised redaction action plus metadata-removal tampering from
 exposing original values. Any evidence inconsistency returns HTTP 409; the
 verification endpoint remains available for diagnosis.
+
+## 26. Ed25519 signed exports
+
+When `AUDIT_EXPORT_PRIVATE_KEY_PATH` is configured, exports are signed v2
+bundles. Ed25519 signs `audit-export-ed25519-v1:` followed by the ASCII bundle
+digest; digest excludes both digest and signature fields. Offline verification
+requires an independently trusted public PEM. Missing/invalid signing config
+fails export rather than downgrading. Unsigned v1 compatibility remains.

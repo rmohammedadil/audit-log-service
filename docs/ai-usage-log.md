@@ -396,6 +396,16 @@ not represent approval or work that has not occurred.
 - **Correction:** Retrieval now fails closed after full verification; `/verify`
   remains available for diagnosis. Focused/full results follow validation.
 
+## Task 26 - Ed25519 signed audit exports
+
+- **AI contribution:** Added optional Ed25519 digest signing, safe local key
+  generation, and independent-public-key offline verification.
+- **Boundary:** Unsigned bundles remain compatible. Configured signing cannot
+  silently downgrade; embedded key IDs are identifiers, not trust anchors.
+
+- **Validation:** Focused signing tests passed: 16 tests. Full regression
+  passed: 324 tests with one existing TestClient warning.
+
 - **Validation:** Focused retrieval/redaction tests passed: 117 tests. Full
   regression passed: 321 tests with one existing TestClient warning.
 

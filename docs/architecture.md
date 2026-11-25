@@ -352,3 +352,10 @@ distributed concurrency control or a retry strategy.
 Query retrieval uses full persisted-chain verification instead of a narrowed
 lifecycle-only check. On any chain, checkpoint, archive, or redaction failure,
 it returns no events, preventing potentially unmasked sensitive-data exposure.
+
+## Task 26 signed export boundary
+
+Signing is optional for compatibility but fail-closed when configured. Private
+keys are filesystem paths outside the repository; public keys are independently
+trusted verifier inputs, never embedded trust anchors. This is not external
+anchoring, rotation, revocation, or individual event signing.

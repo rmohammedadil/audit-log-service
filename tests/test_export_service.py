@@ -13,10 +13,12 @@ from sqlalchemy.orm import Session
 from app.database import Base
 from app.services import audit_service
 from app.services.audit_service import AuditChainIntegrityError, append_audit_event
-from app.services.export_service import create_audit_export
+from app.services.export_service import calculate_bundle_digest, create_audit_export
 from app.services.redaction_service import redact_audit_event
 from app.services.retention_service import run_retention
 from app.verify_export import BundleVerificationError, verify_bundle
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 
 @pytest.fixture()
@@ -140,3 +142,40 @@ def test_standalone_module_verifies_saved_bundle(session: Session, monkeypatch: 
     completed = subprocess.run([sys.executable, "-m", "app.verify_export", str(path)], capture_output=True, text=True, check=False)
     assert completed.returncode == 0
     assert '"isValid": true' in completed.stdout
+
+
+def test_signed_export_requires_independently_trusted_public_key(session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    private = Ed25519PrivateKey.generate()
+    private_path, public_path = tmp_path / "private.pem", tmp_path / "public.pem"
+    private_path.write_bytes(private.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+    public_path.write_bytes(private.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+    monkeypatch.setenv("AUDIT_EXPORT_PRIVATE_KEY_PATH", str(private_path))
+    append(session, monkeypatch, "ONE")
+    session.commit()
+    bundle = create_audit_export(session, actor_id="actor-a", resource_id=None, include_archived=False)
+    assert bundle["bundleSchemaVersion"] == "audit-export-v2"
+    assert verify_bundle(bundle, public_key_path=str(public_path))["signatureVerified"] is True
+    bundle["signature"]["value"] = "AAAA"
+    with pytest.raises(BundleVerificationError):
+        verify_bundle(bundle, public_key_path=str(public_path))
+
+
+def test_signature_verification_rejects_downgrade_wrong_key_and_recomputed_tampering(session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    private = Ed25519PrivateKey.generate(); wrong = Ed25519PrivateKey.generate()
+    private_path, public_path, wrong_path = tmp_path / "private.pem", tmp_path / "public.pem", tmp_path / "wrong.pem"
+    private_path.write_bytes(private.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+    public_path.write_bytes(private.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+    wrong_path.write_bytes(wrong.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo))
+    monkeypatch.setenv("AUDIT_EXPORT_PRIVATE_KEY_PATH", str(private_path)); append(session, monkeypatch, "ONE"); session.commit()
+    bundle = create_audit_export(session, actor_id="actor-a", resource_id=None, include_archived=False)
+    with pytest.raises(BundleVerificationError): verify_bundle(bundle, public_key_path=str(wrong_path))
+    unsigned = dict(bundle); unsigned.pop("signature")
+    with pytest.raises(BundleVerificationError): verify_bundle(unsigned, public_key_path=str(public_path))
+    bundle["records"][0]["payload"]["name"] = "changed"
+    bundle["bundleDigest"] = calculate_bundle_digest(bundle)
+    with pytest.raises(BundleVerificationError): verify_bundle(bundle, public_key_path=str(public_path))
+
+
+def test_invalid_configured_signing_key_fails_closed(session: Session, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("AUDIT_EXPORT_PRIVATE_KEY_PATH", str(tmp_path / "missing.pem")); append(session, monkeypatch, "ONE"); session.commit()
+    with pytest.raises(RuntimeError): create_audit_export(session, actor_id="actor-a", resource_id=None, include_archived=False)

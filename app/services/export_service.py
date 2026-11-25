@@ -26,6 +26,7 @@ from app.services.audit_service import (
     normalize_timestamp,
     verify_audit_chain,
 )
+from app.export_signing import sign_digest_if_configured
 
 
 BUNDLE_SCHEMA_VERSION = "audit-export-v1"
@@ -45,7 +46,10 @@ def canonical_bundle_bytes(bundle: dict[str, Any]) -> bytes:
 
 
 def calculate_bundle_digest(bundle_without_digest: dict[str, Any]) -> str:
-    return sha256(canonical_bundle_bytes(bundle_without_digest)).hexdigest()
+    unsigned = dict(bundle_without_digest)
+    unsigned.pop("bundleDigest", None)
+    unsigned.pop("signature", None)
+    return sha256(canonical_bundle_bytes(unsigned)).hexdigest()
 
 
 def _event_record(event: AuditEvent, paths: list[str]) -> dict[str, Any]:
@@ -182,4 +186,10 @@ def create_audit_export(
         "checkpoint": checkpoint_snapshot,
     }
     bundle["bundleDigest"] = calculate_bundle_digest(bundle)
+    signature = sign_digest_if_configured(bundle["bundleDigest"])
+    if signature is not None:
+        bundle["bundleSchemaVersion"] = "audit-export-v2"
+        # Schema version participates in the signed digest, so recalculate.
+        bundle["bundleDigest"] = calculate_bundle_digest(bundle)
+        bundle["signature"] = sign_digest_if_configured(bundle["bundleDigest"])
     return bundle

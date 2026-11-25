@@ -12,6 +12,8 @@ __pycache__/
 .env
 .env.*
 !.env.example
+*.pem
+*.key
 
 # Test and coverage files
 .pytest_cache/

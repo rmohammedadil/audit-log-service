@@ -16,6 +16,10 @@ from pathlib import Path
 import re
 import sys
 from typing import Any
+import base64
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.exceptions import InvalidSignature
 
 
 BUNDLE_SCHEMA_VERSION = "audit-export-v1"
@@ -79,7 +83,7 @@ def _chain_hash(content_hash: str, previous_chain_hash: str) -> str:
                     "hashSchemeVersion": HASH_SCHEME_VERSION, "previousChainHash": previous_chain_hash})
 
 
-def verify_bundle(bundle: object, expected_digest: str | None = None) -> dict[str, Any]:
+def verify_bundle(bundle: object, expected_digest: str | None = None, public_key_path: str | None = None) -> dict[str, Any]:
     """Verify bundle-internal consistency without accessing source storage."""
 
     if not isinstance(bundle, dict):
@@ -87,12 +91,28 @@ def verify_bundle(bundle: object, expected_digest: str | None = None) -> dict[st
     supplied_digest = _require_digest(bundle.get("bundleDigest"), "bundleDigest")
     unsigned = dict(bundle)
     unsigned.pop("bundleDigest", None)
+    unsigned.pop("signature", None)
     if _digest(unsigned) != supplied_digest:
         raise BundleVerificationError("bundle digest mismatch")
     if expected_digest is not None and supplied_digest != _require_digest(expected_digest, "expected digest"):
         raise BundleVerificationError("trusted digest mismatch")
-    if bundle.get("bundleSchemaVersion") != BUNDLE_SCHEMA_VERSION:
+    version = bundle.get("bundleSchemaVersion")
+    if version not in (BUNDLE_SCHEMA_VERSION, "audit-export-v2"):
         raise BundleVerificationError("unsupported bundle schema version")
+    signature_verified = False
+    if public_key_path is not None:
+        signature = bundle.get("signature")
+        if not isinstance(signature, dict) or signature.get("algorithm") != "Ed25519" or signature.get("format") != "audit-export-ed25519-v1" or not isinstance(signature.get("keyId"), str) or not isinstance(signature.get("value"), str):
+            raise BundleVerificationError("signature is required and invalid")
+        try:
+            public = serialization.load_pem_public_key(Path(public_key_path).read_bytes())
+            if not isinstance(public, Ed25519PublicKey): raise ValueError()
+            public_der = public.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+            if sha256(public_der).hexdigest()[:16] != signature["keyId"]: raise ValueError()
+            public.verify(base64.b64decode(signature["value"], validate=True), f"audit-export-ed25519-v1:{supplied_digest}".encode("ascii"))
+            signature_verified = True
+        except (OSError, ValueError, TypeError, InvalidSignature):
+            raise BundleVerificationError("signature verification failed") from None
     _timestamp(bundle.get("exportedAt"))
     selector = bundle.get("selector")
     if not isinstance(selector, dict) or set(selector) not in ({"actorId"}, {"resourceId"}):
@@ -168,18 +188,20 @@ def verify_bundle(bundle: object, expected_digest: str | None = None) -> dict[st
         raise BundleVerificationError("selected records are not in ascending ID order")
     return {"isValid": True, "bundleDigest": supplied_digest, "recordCount": len(records),
             "contentHashesRecomputed": recomputed, "redactedRecordsNotRecomputed": redacted,
-            "trustedDigestMatched": expected_digest is not None}
+            "trustedDigestMatched": expected_digest is not None, "signatureVerified": signature_verified,
+            "bundleSigned": "signature" in bundle}
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify an audit export bundle without a database")
     parser.add_argument("bundle", help="path to an export JSON file")
     parser.add_argument("--expected-digest", dest="expected_digest")
+    parser.add_argument("--public-key", dest="public_key")
     args = parser.parse_args(argv)
     try:
         with Path(args.bundle).open("r", encoding="utf-8") as handle:
             bundle = json.load(handle)
-        result = verify_bundle(bundle, args.expected_digest)
+        result = verify_bundle(bundle, args.expected_digest, args.public_key)
     except (OSError, json.JSONDecodeError, BundleVerificationError) as error:
         print(f"verification failed: {error}", file=sys.stderr)
         return 1
