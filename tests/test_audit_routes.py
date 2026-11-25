@@ -1203,3 +1203,22 @@ def test_request_log_excludes_query_and_credentials(
     log = caplog.text
     assert "secret-account" not in log
     assert "secret-token" not in log
+
+
+@pytest.mark.parametrize("path", ["/audit/events?offset=-1", "/audit/events?offset=1000001", "/audit/events?offset=1.5", "/audit/events?offset=true", "/audit/events?offset=abc", "/audit/access-reports?from=2020-01-01T00:00:00Z&to=2030-01-01T00:00:00Z&offset=1000001"])
+def test_pagination_offset_contract_rejects_invalid_values(
+    api_client: tuple[TestClient, sessionmaker[Session]], path: str
+) -> None:
+    client, _ = api_client
+    assert client.get(path).status_code == 422
+
+
+def test_openapi_documents_auth_idempotency_and_error_contracts(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = api_client
+    operation = client.get("/openapi.json").json()["paths"]["/audit/events"]["post"]
+    assert "Idempotency-Key" in str(operation)
+    assert {"200", "201", "401", "403", "409", "422", "500"} <= set(operation["responses"])
+    assert len(operation["responses"]["422"]["content"]["application/json"]["schema"]["oneOf"]) == 2
+    assert client.get("/openapi.json").json()["paths"]["/audit/events"]["get"]["parameters"]

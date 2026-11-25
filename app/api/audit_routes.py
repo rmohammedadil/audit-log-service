@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.database import begin_write_transaction, get_db
 from app.schemas import (
     AuditChainVerificationRead,
+    ApiErrorRead,
     AuditEventCreate,
     AuditEventRead,
     AuditEventQueryRead,
@@ -28,6 +29,7 @@ from app.services.audit_service import (
     AuditChainIntegrityError,
     DEFAULT_QUERY_LIMIT,
     MAX_QUERY_LIMIT,
+    MAX_QUERY_OFFSET,
     append_audit_event,
     find_idempotent_event, idempotency_fingerprint, IdempotencyConflictError, IdempotencyKeyValidationError, MAX_IDEMPOTENCY_KEY_LENGTH,
     query_audit_events,
@@ -49,6 +51,10 @@ from app.auth import AuthenticatedIdentity, require_roles
 router = APIRouter(prefix="/audit", tags=["audit"])
 logger = logging.getLogger(__name__)
 
+AUTH_ERRORS = {401: {"model": ApiErrorRead, "description": "Missing or invalid Bearer token"}, 403: {"model": ApiErrorRead, "description": "Role is not permitted"}}
+INTEGRITY_ERROR = {409: {"model": ApiErrorRead, "description": "Audit integrity cannot be trusted"}}
+VALIDATION_ERROR = {"description": "FastAPI request validation errors or application validation detail", "content": {"application/json": {"schema": {"oneOf": [{"$ref": "#/components/schemas/HTTPValidationError"}, {"$ref": "#/components/schemas/ApiErrorRead"}]}}}}
+
 
 def _validate_filter(value: str | None, public_name: str) -> str | None:
     """Reject whitespace-only filters after FastAPI applies length limits."""
@@ -69,6 +75,9 @@ def _validate_filter(value: str | None, public_name: str) -> str | None:
     response_model=AuditEventRead,
     response_model_by_alias=True,
     status_code=status.HTTP_201_CREATED,
+    summary="Create an audit event",
+    description="Requires writer role. Optional Idempotency-Key is 1–128 URL-safe characters; identical replay returns 200, changed content returns 409.",
+    responses={**AUTH_ERRORS, **INTEGRITY_ERROR, 200: {"model": AuditEventRead, "description": "Idempotent replay"}, 422: VALIDATION_ERROR, 500: {"model": ApiErrorRead, "description": "Sanitized persistence failure"}},
 )
 def create_audit_event(
     event_input: AuditEventCreate,
@@ -144,6 +153,9 @@ def create_audit_event(
     "/events/{event_id}/redact",
     response_model=RedactionRead,
     response_model_by_alias=True,
+    summary="Mask selected payload values",
+    description="Requires admin role. Creates non-destructive JSON Pointer redaction metadata.",
+    responses={**AUTH_ERRORS, **INTEGRITY_ERROR, 404: {"model": ApiErrorRead}, 422: VALIDATION_ERROR, 500: {"model": ApiErrorRead}},
 )
 def redact_event(
     event_id: int,
@@ -186,6 +198,9 @@ def redact_event(
     "/retention/run",
     response_model=RetentionRunRead,
     response_model_by_alias=True,
+    summary="Run configured retention",
+    description="Requires admin role. Applies server-owned logical archival policy.",
+    responses={**AUTH_ERRORS, **INTEGRITY_ERROR, 500: {"model": ApiErrorRead}},
 )
 def run_configured_retention(
     database_session: Annotated[Session, Depends(get_db)],
@@ -229,7 +244,7 @@ def run_configured_retention(
     return response
 
 
-@router.post("/exports")
+@router.post("/exports", summary="Export verified audit evidence", description="Requires auditor or admin role. Produces an internally verified bundle; optional signing is server configured.", responses={**AUTH_ERRORS, **INTEGRITY_ERROR, 422: VALIDATION_ERROR, 500: {"model": ApiErrorRead}})
 def create_export(
     export_request: AuditExportRequest,
     database_session: Annotated[Session, Depends(get_db)],
@@ -266,6 +281,9 @@ def create_export(
     "/access-reports",
     response_model=list[AuditAccessReportRead],
     response_model_by_alias=True,
+    summary="Report recorded client-account access",
+    description="Requires regulator role. UTC from/to are required; archived evidence is included by default.",
+    responses={**AUTH_ERRORS, **INTEGRITY_ERROR, 422: VALIDATION_ERROR, 500: {"model": ApiErrorRead}},
 )
 def list_access_reports(
     from_timestamp: Annotated[datetime, Query(alias="from")],
@@ -276,8 +294,8 @@ def list_access_reports(
     actor_id: Annotated[str | None, Query(alias="actorId", min_length=1, max_length=256)] = None,
     operation: Annotated[str | None, Query(min_length=1, max_length=16)] = None,
     outcome: Annotated[str | None, Query(min_length=1, max_length=16)] = None,
-    limit: Annotated[int, Query(ge=1, le=MAX_QUERY_LIMIT)] = DEFAULT_QUERY_LIMIT,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=MAX_QUERY_LIMIT, description="1–1000 records")] = DEFAULT_QUERY_LIMIT,
+    offset: Annotated[int, Query(ge=0, le=MAX_QUERY_OFFSET, description="0–1,000,000 records to skip")] = 0,
 ) -> list[AuditAccessReportRead]:
     """Return only explicit client-account access evidence for future regulators.
 
@@ -330,6 +348,9 @@ def list_access_reports(
     "/events",
     response_model=list[AuditEventQueryRead],
     response_model_by_alias=True,
+    summary="List audit events",
+    description="Requires auditor or admin role. Full integrity is verified before event payloads are returned.",
+    responses={**AUTH_ERRORS, **INTEGRITY_ERROR, 422: VALIDATION_ERROR, 500: {"model": ApiErrorRead}},
 )
 def list_audit_events(
     database_session: Annotated[Session, Depends(get_db)],
@@ -359,7 +380,7 @@ def list_audit_events(
     ] = DEFAULT_QUERY_LIMIT,
     offset: Annotated[
         int,
-        Query(ge=0, description="Records to skip before collecting a page"),
+        Query(ge=0, le=MAX_QUERY_OFFSET, description="0–1,000,000 records to skip before collecting a page"),
     ] = 0,
 ) -> list[AuditEventQueryRead]:
     """Retrieve events through the read-only service using public aliases.
@@ -383,7 +404,7 @@ def list_audit_events(
             offset=offset,
         )
     except AuditChainIntegrityError:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Lifecycle metadata cannot be trusted for retrieval") from None
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Audit integrity cannot be trusted for retrieval") from None
     except ValueError as error:
         # Validation errors from the reusable service become client errors.
         raise HTTPException(
@@ -421,6 +442,9 @@ def list_audit_events(
     "/verify",
     response_model=AuditChainVerificationRead,
     response_model_by_alias=True,
+    summary="Verify complete audit evidence",
+    description="Requires auditor, regulator, or admin role. An inconsistent result is HTTP 200; operational failure is 500.",
+    responses={**AUTH_ERRORS, 500: {"model": ApiErrorRead}},
 )
 def verify_audit_events(
     database_session: Annotated[Session, Depends(get_db)],

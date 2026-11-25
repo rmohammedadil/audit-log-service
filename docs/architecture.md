@@ -369,3 +369,10 @@ and full chain before returning a masked event.
 The request fingerprint covers validated client fields, including payload, but
 not server-assigned identifiers or timestamps. Idempotency metadata is mutable
 same-database state and therefore shares the checkpoint trust boundary.
+
+## Task 28 API contract boundary
+
+Route metadata documents actual role requirements and sanitized response shapes.
+Offset bounds are enforced before SQLite receives a binding, preventing oversized
+pagination values from becoming database errors. Request IDs are server-created;
+clients cannot supply or control them.

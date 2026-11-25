@@ -299,8 +299,8 @@ access or outcomes from ordinary audit events.
 
 The endpoint verifies the full source chain first and returns 409 for integrity
 failure. It reports recorded application evidence only; it does not establish
-regulatory compliance or completeness of external access logging. JWT and
-regulator-role authorization are deferred.
+regulatory compliance or completeness of external access logging. JWT regulator
+role authorization is required.
 
 ### Report recorded account access
 
@@ -334,19 +334,6 @@ regulator-role authorization are deferred.
 `/health` is liveness. `/ready` checks database connectivity and returns 503
 without details when unavailable. Responses include `X-Request-ID`; telemetry
 does not log tokens, payloads, account identifiers, or exception text.
-
-```bash
-export AUDIT_JWT_SIGNING_KEY="replace-with-random-local-key-at-least-32-characters"
-export AUDIT_JWT_ISSUER="audit-local"
-export AUDIT_JWT_AUDIENCE="audit-api"
-TOKEN=$(python -m app.generate_token --subject local-admin --role admin)
-```
-
-Swagger supports Bearer authentication. Roles: writer creates; auditor queries,
-verifies, and exports; regulator reports and verifies; admin queries, verifies,
-exports, retains, and redacts. JWT subject is the caller, not business actorId.
-
-## Local JWT setup
 
 ```bash
 export AUDIT_JWT_SIGNING_KEY="replace-with-random-local-key-at-least-32-characters"
@@ -423,26 +410,6 @@ needs to be retained.
 
 Writers may send `Idempotency-Key`; an identical retry returns the original
 event without another append, while different content returns HTTP 409.
-
-## Idempotent event creation
-
-Writers may send `Idempotency-Key`; an identical retry returns the original
-event without another append, while different content returns HTTP 409.
-
-## Signed export bundles
-
-Optional signing uses `AUDIT_EXPORT_PRIVATE_KEY_PATH` pointing to an Ed25519
-private PEM outside this repository.
-
-```bash
-python -m app.generate_export_keys --private C:/keys/audit-private.pem --public C:/keys/audit-public.pem
-python -m app.verify_export bundle.json --public-key C:/keys/audit-public.pem
-```
-
-Signed v2 bundles include Ed25519 algorithm, key ID, and base64 signature. The
-signature covers `audit-export-ed25519-v1:` plus the canonical lowercase digest;
-the digest excludes `bundleDigest` and `signature`. Unsigned v1 remains valid
-for internal/digest verification, but cannot be signature-verified.
 
 ## Signed export bundles
 

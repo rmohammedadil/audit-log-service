@@ -577,3 +577,10 @@ current redaction; mappings share the same-database trust boundary.
 Malformed keys alone are HTTP 422. Internal failures remain sanitized HTTP 500;
 raw keys and request payloads are not logged. SQLite coordination serializes
 local writers but does not provide cross-process or distributed guarantees.
+
+## 28. API contract hardening
+
+Event and access-report offsets are integer values from 0 through 1,000,000;
+limits remain 1 through 1,000. OpenAPI documents JWT roles, sanitized errors,
+UTC boundaries, idempotency replay/conflict responses, and integrity failures.
+Every response includes a server-generated request correlation ID.

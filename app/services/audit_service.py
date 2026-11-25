@@ -35,6 +35,7 @@ CHAIN_HASH_DOMAIN = "audit-log-chain-hash"
 GENESIS_CHAIN_HASH = sha256(b"audit-log-chain-genesis-v1").hexdigest()
 DEFAULT_QUERY_LIMIT = 100
 MAX_QUERY_LIMIT = 1000
+MAX_QUERY_OFFSET = 1_000_000
 _DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
 _MAX_ARCHIVE_RETENTION_DAYS = 36_500
 AUDIT_RETENTION_APPLIED = "AUDIT_RETENTION_APPLIED"
@@ -1160,8 +1161,8 @@ def query_audit_events(
         raise ValueError("offset must be an integer")
     if not 1 <= limit <= MAX_QUERY_LIMIT:
         raise ValueError(f"limit must be between 1 and {MAX_QUERY_LIMIT}")
-    if offset < 0:
-        raise ValueError("offset must be greater than or equal to 0")
+    if not 0 <= offset <= MAX_QUERY_OFFSET:
+        raise ValueError(f"offset must be between 0 and {MAX_QUERY_OFFSET}")
 
     normalized_from = (
         _normalize_query_timestamp(from_timestamp, "from_timestamp")
@@ -1250,8 +1251,8 @@ def query_access_reports(
 
     if type(limit) is not int or not 1 <= limit <= MAX_QUERY_LIMIT:
         raise ValueError(f"limit must be between 1 and {MAX_QUERY_LIMIT}")
-    if type(offset) is not int or offset < 0:
-        raise ValueError("offset must be a non-negative integer")
+    if type(offset) is not int or not 0 <= offset <= MAX_QUERY_OFFSET:
+        raise ValueError(f"offset must be an integer between 0 and {MAX_QUERY_OFFSET}")
     if operation is not None and operation not in ACCESS_OPERATIONS:
         raise ValueError("operation is invalid")
     if outcome is not None and outcome not in ACCESS_OUTCOMES:

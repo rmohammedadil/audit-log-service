@@ -131,6 +131,12 @@ class AuditChainVerificationRead(BaseModel):
     detail: str
 
 
+class ApiErrorRead(BaseModel):
+    """Sanitized error body returned by documented API failure responses."""
+
+    detail: str
+
+
 class RetentionRunRead(BaseModel):
     """Public outcome of a server-configured logical archival run."""
 

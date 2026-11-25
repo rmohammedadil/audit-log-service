@@ -383,6 +383,16 @@ not represent approval or work that has not occurred.
 - **AI contribution:** Added writer-scoped fingerprints, atomic replay mapping,
   conflict handling, and additive V3 initialization.
 
+## Task 28 - API hardening and OpenAPI documentation
+
+- **AI contribution:** Added bounded offset validation, accurate integrity
+  wording, endpoint OpenAPI summaries/error responses, and documentation
+  reconciliation. Tests are pending manual execution.
+
+- **Validation:** Developer manual validation passed 223 focused and 341 full
+  tests. After the OpenAPI 422-schema correction, Codex reran the full suite:
+  341 passed with one existing deprecation warning.
+
 - **Review correction:** Added genuine concurrent API coverage and narrowed
   idempotency validation error mapping so unrelated internal ValueError cases
   retain sanitized HTTP 500 behavior.
