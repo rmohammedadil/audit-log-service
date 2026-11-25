@@ -25,7 +25,7 @@ from the HTTP interface.
 | `app/api/audit_routes.py` | Defines audit endpoints and translates requests/responses. |
 | `app/schemas.py` | Defines request and response validation schemas. |
 | `app/services/audit_service.py` | Canonicalizes and hashes event content, appends records with checkpoint updates, queries events, and verifies persisted chains. Concurrent-writer coordination remains deferred. |
-| `app/models.py` | Defines persisted audit events and later archival/redaction metadata. |
+| `app/models.py` | Defines persisted audit events, the checkpoint, and unused V3 archival/redaction metadata. |
 | `app/database.py` | Configures the SQLite engine, sessions, and declarative base. |
 | `tests/` | Covers service rules, API behavior, and direct-database tamper scenarios. |
 
@@ -61,9 +61,9 @@ from this service; unknown legacy values are not migrated or repaired.
 - `GET /audit/events`: list events with optional filters and pagination.
 - `GET /audit/verify`: validate the complete chain.
 
-There will be no public update or delete route. Scenario B routes will be
-designed only after archival, redaction, and export semantics are documented
-and reviewed.
+There will be no public update or delete route. Task 15 adds no Scenario B
+routes: retention execution, redaction projection, lifecycle-action creation,
+and export remain separately approved future work.
 
 ## API Contract Boundary
 
@@ -168,23 +168,52 @@ transaction ownership in the service and HTTP layer respectively.
 - Stronger tamper resistance would require external hash anchoring or
   write-once storage, beyond this prototype's stated requirement.
 
-## V2 Linked Integrity Boundary
+## V3 Lifecycle Metadata Foundation
 
-V2 preserves `content_hash` as the independent digest of canonical event
-content. Each event additionally stores a scheme version, predecessor chain
-hash, and a domain-separated chain hash over the version, content hash, and
-predecessor chain hash. This creates transitive cryptographic dependency while
-leaving the event-content hash rule unchanged. The checkpoint uses the head
-chain hash, not a redundant head content hash.
+V3 preserves the existing `audit-chain-v1` content and linked-chain hashes.
+It adds no new hash scheme and does not modify an existing audit event. Instead
+it adds two separate metadata tables:
+
+- `audit_event_archives` has a surrogate ID, unique target event ID, UTC
+  archive timestamp, and future archival-action event ID.
+- `audit_event_redactions` stores a target event ID, canonical JSON Pointer,
+  UTC timestamp, non-sensitive reason/category, and future redaction-action
+  event ID. A target event/pointer pair is unique.
+
+Both target IDs and action IDs are foreign keys to `audit_events`; SQLite
+foreign-key enforcement is enabled for all application and isolated test
+engines. The metadata contains no original sensitive values. It is a database
+foundation only: Task 15 does not archive an event, redact a payload, create a
+lifecycle audit event, or make verification inspect lifecycle metadata.
+SQLite does not enforce declared `VARCHAR` lengths, so future services must
+validate canonical JSON Pointer syntax, the 1024-character pointer limit, and
+the 256-character non-sensitive reason limit before persistence.
+
+Approved future behavior requires every metadata record to correspond to a
+chained lifecycle action created in the same caller-owned transaction. Future
+verification must detect missing, unexpected, and inconsistent metadata/action
+relationships. Original historical hashes remain unchanged, lifecycle events
+advance the checkpoint normally, and internal lifecycle event types must be
+reserved from ordinary client input and protected from recursive archival or
+redaction.
 
 The runtime database path comes from `AUDIT_DB_PATH` and defaults to
-`audit_log_v2.db` when absent. Relative paths resolve from the process working
+`audit_log_v3.db` when absent. Relative paths resolve from the process working
 directory; absolute paths and paths containing spaces are preserved. Explicit
 empty or whitespace-only values are configuration errors, not a fallback to a
 different database. Before creating tables, startup compares existing audit
-table names and column-name sets with the expected V2 schema and rejects
-legacy or partial schemas without writing to them. This preflight does not
-validate column types, constraints, indexes, or SQLite table SQL. The V1
-`audit_log.db` remains an untouched legacy artifact. The system is still not
-an external trust anchor: a privileged actor able to rewrite all records,
-linked hashes, and checkpoint state can make the database appear consistent.
+table names beginning with `audit_` and their column-name sets with the
+expected V3 schema. It rejects V1, V2, partial V3, and mixed audit schemas
+without writing to them. This preflight does not validate column types,
+constraints, indexes, or SQLite table SQL. The V1 `audit_log.db` and existing
+V2 databases remain untouched artifacts; no migration or automatic backfill is
+provided. The system is still not an external trust anchor: a privileged actor
+able to rewrite all records, linked hashes, checkpoint state, and metadata can
+make the database appear consistent.
+
+Future Scenario B HTTP endpoints are intended only for trusted local
+assessment use until authentication and authorization exist. Redaction is
+planned as masking, not permanent erasure. Export verification will distinguish
+an internally consistent bundle digest from verification against an externally
+retained expected digest; it will not claim source authenticity or filtered
+result completeness without additional trust mechanisms.

@@ -5,9 +5,10 @@ tamper-evident audit trail. It appends hash-linked events, supports filtered
 event retrieval, and reports integrity failures caused by direct database
 modification or deletion.
 
-Scenario A is conditionally accepted based on the implemented behavior,
-automated tests, and developer-performed manual validation. It remains subject
-to independent reconciliation with the original assessment source.
+Scenario A is completed as a functional prototype based on implemented
+behavior, automated tests, and developer-performed manual validation. Its
+requirements reconciliation uses a recovered assessment transcription supplied
+during review, not an independently parsed original assessment source.
 
 ## What is implemented
 
@@ -19,6 +20,9 @@ to independent reconciliation with the original assessment source.
   versioned cryptographically linked chain hashes.
 - SQLite persistence restores server-assigned timestamps as timezone-aware UTC
   values so persisted events remain hash-verifiable.
+- V3 defines archive and redaction metadata tables while preserving every
+  historical event and its original hash evidence. Lifecycle services, views,
+  and export behavior are intentionally not implemented yet.
 - Automated tests cover normal writes, queries, verification, direct-database
   modification/deletion, malformed persisted evidence, rollback, and error
   handling.
@@ -106,12 +110,12 @@ From the repository root, start the development server:
 python -m uvicorn app.main:app --reload
 ```
 
-The prototype creates `audit_log_v2.db` in the current working directory on
-startup. Set `AUDIT_DB_PATH` to select another fresh V2 SQLite database. The
+The prototype creates `audit_log_v3.db` in the current working directory on
+startup. Set `AUDIT_DB_PATH` to select another fresh V3 SQLite database. The
 original `audit_log.db` is a legacy V1 database and is never migrated or
-modified automatically; startup rejects incompatible schemas before creating
-or changing tables. If `AUDIT_DB_PATH` is absent, the default is a relative
-`audit_log_v2.db` path under the process working directory. Relative and
+modified automatically. Existing V2 databases are also rejected rather than
+silently receiving new metadata tables. If `AUDIT_DB_PATH` is absent, the
+default is a relative `audit_log_v3.db` path under the process working directory. Relative and
 absolute paths, including filenames with spaces, are supported; explicitly
 empty or whitespace-only values are rejected as configuration errors.
 
@@ -247,8 +251,9 @@ python -m pytest -q -p no:cacheprovider --basetemp "C:/Charles_Schwab/pytest-tem
 This workaround confines pytest's temporary files to a new writable location.
 It does not diagnose or repair the underlying Windows permission configuration.
 
-The committed baseline at the end of Task 10 is 145 passing tests. Task 11
-revalidates this baseline from a fresh isolated environment.
+The Task 13 baseline is 238 passing tests. Task 15 adds isolated V3 metadata
+and preflight coverage; its final validation result is recorded in the AI usage
+log and accompanying engineering review.
 
 ## Safe manual testing
 
@@ -281,8 +286,11 @@ needs to be retained.
   designed for very large audit histories.
 - There is no authentication or authorization, including no JWT or RBAC.
 - SQLite, startup `create_all`, and offset pagination are prototype choices;
-  there are no migrations, retention, redaction, export, Docker, CI/CD, or
-  production deployment configuration.
+  there are no migrations, lifecycle services, archive filtering, redaction
+  projection, export, Docker, CI/CD, or production deployment configuration.
+- V3 archive and redaction metadata are a persistence foundation only. They do
+  not yet archive data, mask a returned payload, redact original values, create
+  lifecycle audit-action events, or change verification behavior.
 - `AuditEventRead` preserves the four persisted event strings exactly as
   stored. Malformed JSON, timestamps, nulls, or incompatible stored types are
   separate retrieval concerns.
@@ -293,10 +301,15 @@ needs to be retained.
 - The installed Starlette/TestClient integration emits a known deprecation
   warning. Dependency versions are preserved because they are the tested set.
 
-Startup preflight compares the names of existing audit tables and their column
-sets with the expected V2 schema before calling `create_all`. It does not
+Startup preflight compares all existing `audit_` table names and their column
+sets with the expected V3 schema before calling `create_all`. It rejects V1,
+V2, partial, and mixed audit schemas rather than adding V3 tables to them. It does not
 validate database column types, constraints, indexes, or SQLite table SQL.
 
-Planned Scenario B work concerns retention, redaction, and export. Scenario C
-and broader production hardening are intentionally not implemented here.
+Planned Scenario B work concerns retention execution, redaction projection,
+lifecycle metadata/action consistency verification, and export. Future
+lifecycle and export HTTP endpoints are intended only for trusted local
+assessment use until authentication and authorization are implemented.
+Scenario C and broader production hardening are intentionally not implemented
+here.
 

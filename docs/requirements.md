@@ -140,6 +140,11 @@ remain part of this acceptance boundary.
 
 ### Scenario B
 
+Task 15 establishes the V3 database foundation only: logical-archive and
+non-destructive redaction metadata can be persisted against retained audit
+events. It does not execute retention, mask API responses, create lifecycle
+events, alter verification, or export records.
+
 - [ ] Document and implement a configurable retention policy using a defined
   archive or soft-delete representation.
 - [ ] Ensure verification handles legitimately archived records without a
@@ -339,7 +344,47 @@ The checkpoint records the version, count, head ID, and head chain hash.
 Append validates only bounded tail/checkpoint integrity; full verification is
 required to assess the complete history.
 
-The default runtime database is `audit_log_v2.db`, configurable through
-`AUDIT_DB_PATH`. Startup inspects any existing audit tables before `create_all`
-and rejects V1 or partial schemas without mutation. The original `audit_log.db`
-is not migrated, backfilled, reset, or modified automatically.
+The default runtime database is `audit_log_v3.db`, configurable through
+`AUDIT_DB_PATH`. Startup inspects existing `audit_` table names and their
+column-name sets before `create_all`, then rejects V1, V2, partial V3, and
+mixed audit schemas without mutation. This name-based preflight does not
+validate column types, constraints, indexes, or SQLite table SQL. The original
+`audit_log.db` and any existing V2 database are not migrated, backfilled,
+reset, or modified automatically.
+
+## 17. Scenario B Lifecycle Metadata Foundation
+
+V3 adds two unused metadata tables while preserving the original audit-event
+content, content hashes, linked-chain hashes, and checkpoint semantics:
+
+- `audit_event_archives` has a surrogate ID, unique target event ID, UTC archive
+  timestamp, and the ID of the future chained archival-action event.
+- `audit_event_redactions` records a target event, canonical JSON Pointer,
+  UTC timestamp, non-sensitive reason/category, and the ID of the future
+  chained redaction-action event. Its target-event/pointer pair is unique.
+
+Both tables reference `audit_events`; SQLite foreign keys are enabled for the
+application and isolated SQLAlchemy engines so those references are enforced.
+They intentionally contain no original sensitive values. Archival and
+redaction are not implemented behavior yet: the metadata is not currently
+created, consumed by queries, applied to payloads, or verified.
+
+SQLite does not enforce declared `VARCHAR` lengths. A future retention or
+redaction service/API must explicitly validate canonical JSON Pointer syntax,
+the 1024-character pointer limit, and the 256-character non-sensitive reason
+limit before persistence.
+
+The approved follow-on contract is that lifecycle metadata must correspond to
+chained lifecycle audit-action evidence, and future verification must detect
+missing, unexpected, or inconsistent metadata/action relationships. Lifecycle
+action events must advance the checkpoint normally, and metadata plus action
+events must commit or roll back in one caller-owned transaction. Internal
+lifecycle event types will be reserved from ordinary client creation and must
+not be recursively archived or redacted in a way that undermines verification.
+
+Future retention, redaction, and export HTTP endpoints are intended for
+trusted local assessment use only until authentication and authorization are
+implemented. Redaction will be masking, not permanent erasure. Export
+verification will distinguish a bundle's internal digest consistency from a
+comparison against an externally retained expected digest; it will not claim
+independent source authenticity or filtered-result completeness.

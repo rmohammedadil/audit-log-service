@@ -319,7 +319,13 @@ not represent approval or work that has not occurred.
   no external checkpoint trust anchor, concurrent-writer coordination, or
   consistent verification snapshot. The separate `AuditEventRead`
   whitespace-normalization concern remains unchanged.
-- **Engineer review and approval of this implementation:** Pending.
+- **Engineer review and conditional approval:** The engineer reviewed and
+  approved the V3 foundation and metadata designs on 2026-11-25, subject to a
+  final focused review of model definitions, SQLite foreign-key enforcement,
+  lifecycle requirements, validation, and staging. The engineer authorized the
+  Task 15 commit if those acceptance conditions pass. This approval does not
+  claim implementation of lifecycle services, metadata integrity verification,
+  retention execution, redaction projection, or export.
 
 ## Task 11 - Repository readiness and documentation
 
@@ -456,3 +462,52 @@ not represent approval or work that has not occurred.
   functional prototype on 2026-11-25, subject to final Git validation and the
   approved Task 13 commit. This records the final status prospectively without
   rewriting earlier historical entries.
+
+## Task 15 - Scenario B V3 database foundation
+
+- **Engineering improvement:** Establishes a fresh V3 persistence boundary for
+  later logical archival and non-destructive redaction without changing the
+  Scenario A event, content-hash, linked-chain, checkpoint, API, or query
+  behavior.
+- **Engineer direction accepted:** The engineer approved logical archival,
+  separate lifecycle metadata, JSON Pointer redaction overlays, chained future
+  lifecycle events, and a fresh V3 database without automatic migration. This
+  task is limited to the metadata and safe-startup foundation.
+- **AI contribution:** Proposed the minimal metadata keys and references,
+  enabled SQLite foreign-key enforcement for application and isolated test
+  engines, implemented strict V3 table/column-name preflight, and added
+  isolated persistence and incompatible-schema coverage.
+- **Implementation decision:** `audit_event_archives` has a surrogate ID, a
+  unique non-null target event ID, UTC archive time, and a future archive-action
+  event ID.
+  `audit_event_redactions` stores a target ID, JSON Pointer, UTC redaction
+  time, non-sensitive reason/category, and future redaction-action event ID;
+  its target/pointer pair is unique. Neither table stores original sensitive
+  values. They remain unused until later approved lifecycle services.
+- **Schema safety:** The default database is now `audit_log_v3.db`. Startup
+  permits fresh and complete V3 schemas only; it rejects V1, V2, partial V3,
+  and mixed `audit_` schemas before `create_all`. Validation checks only table
+  names and column-name sets, not types, constraints, indexes, or table SQL.
+  No migration, backfill, recalculation, or runtime database modification was
+  performed.
+- **Validation performed:** Focused model and database tests passed: 30 tests.
+  The complete suite using a fresh external disposable pytest base directory
+  passed: 254 tests with one existing Starlette `TestClient` deprecation
+  warning. An isolated V3 application startup with an explicit temporary path
+  containing spaces returned HTTP 200 for `/health`, `/openapi.json`, and
+  `/audit/verify`. Final focused review added an assertion that deleting a
+  referenced audit event is rejected by SQLite foreign-key enforcement; the
+  focused and complete results above were rerun after that addition.
+- **Database protection:** Before implementation, the original ignored
+  `audit_log.db` matched the supplied review-stage SHA-256
+  `B0401EBDF6E7A1A65B9E6CB4667A7E0A64D12A94D5D28E8AD3755FC5A2DCC96A`.
+  No V2 runtime database files were present in the repository. Final checksum
+  comparison is recorded with final validation; the baseline proves comparison
+  from the review stage onward, not the database state before prior work.
+- **Known limitations:** Archive execution, redaction projection, lifecycle
+  action creation, metadata/action verification, export, authentication,
+  authorization, migrations, external checkpoint anchoring, and concurrent
+  writer coordination remain unimplemented. Future lifecycle/export HTTP
+  endpoints are intended for trusted local assessment use until access control
+  is separately approved.
+- **Engineer review and approval of this implementation:** Pending.

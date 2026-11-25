@@ -9,7 +9,7 @@ from app.database import Base, engine, preflight_database_schema
 
 
 def initialize_database() -> None:
-    """Preflight the configured database before creating fresh V2 tables."""
+    """Preflight the configured database before creating fresh V3 tables."""
 
     preflight_database_schema(engine)
     Base.metadata.create_all(bind=engine)

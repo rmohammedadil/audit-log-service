@@ -3,7 +3,15 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import CheckConstraint, JSON, DateTime, Integer, String
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -81,6 +89,71 @@ class AuditEvent(Base):
     hash_scheme_version: Mapped[str] = mapped_column(String(32), nullable=False)
     previous_chain_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     chain_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class AuditEventArchive(Base):
+    """Logical-archive metadata for one retained audit event.
+
+    The target event remains untouched so its original content and linked
+    hashes stay verifiable. ``archive_action_event_id`` will later identify a
+    normal chained lifecycle event created in the same transaction; Task 15
+    intentionally adds only the persistence foundation for that future rule.
+    """
+
+    __tablename__ = "audit_event_archives"
+    __table_args__ = (
+        UniqueConstraint(
+            "target_event_id", name="uq_audit_event_archives_target_event"
+        ),
+        CheckConstraint(
+            "target_event_id != archive_action_event_id",
+            name="ck_audit_event_archives_distinct_action",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Unique target rows make repeated archival idempotent at the database level.
+    target_event_id: Mapped[int] = mapped_column(
+        ForeignKey("audit_events.id", ondelete="RESTRICT"), nullable=False
+    )
+    archived_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
+    archive_action_event_id: Mapped[int] = mapped_column(
+        ForeignKey("audit_events.id", ondelete="RESTRICT"), nullable=False
+    )
+
+
+class AuditEventRedaction(Base):
+    """Non-destructive JSON Pointer overlay metadata for one event payload.
+
+    Original values are deliberately absent from this table. A future
+    projection service will apply the canonical pointer only to a copied
+    payload, while the stored event and its hashes remain original evidence.
+    """
+
+    __tablename__ = "audit_event_redactions"
+    __table_args__ = (
+        UniqueConstraint(
+            "target_event_id",
+            "json_pointer",
+            name="uq_audit_event_redactions_target_pointer",
+        ),
+        CheckConstraint(
+            "target_event_id != redaction_action_event_id",
+            name="ck_audit_event_redactions_distinct_action",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    target_event_id: Mapped[int] = mapped_column(
+        ForeignKey("audit_events.id", ondelete="RESTRICT"), nullable=False
+    )
+    # JSON Pointer syntax and path existence are future service-layer rules.
+    json_pointer: Mapped[str] = mapped_column(String(1024), nullable=False)
+    redacted_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
+    redaction_reason: Mapped[str] = mapped_column(String(256), nullable=False)
+    redaction_action_event_id: Mapped[int] = mapped_column(
+        ForeignKey("audit_events.id", ondelete="RESTRICT"), nullable=False
+    )
 
 
 class AuditChainState(Base):

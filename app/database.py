@@ -1,12 +1,13 @@
 import os
+import sqlite3
 from pathlib import Path
 
-from sqlalchemy import Engine, create_engine, inspect
+from sqlalchemy import Engine, create_engine, event, inspect
 from collections.abc import Generator
 
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
-DEFAULT_AUDIT_DB_PATH = "audit_log_v2.db"
+DEFAULT_AUDIT_DB_PATH = "audit_log_v3.db"
 
 
 class AuditDatabaseConfigurationError(ValueError):
@@ -16,7 +17,7 @@ class AuditDatabaseConfigurationError(ValueError):
 def database_url_from_path(configured_path: str | None) -> str:
     """Return the SQLite URL for an absent or explicitly valid path.
 
-    A missing environment variable intentionally uses the documented V2
+    A missing environment variable intentionally uses the documented V3
     default. An explicitly empty value is rejected instead of silently
     selecting another database, which could hide an operator mistake.
     """
@@ -54,37 +55,76 @@ EXPECTED_DATABASE_COLUMNS = {
         "head_event_id",
         "head_chain_hash",
     },
+    "audit_event_archives": {
+        "id",
+        "target_event_id",
+        "archived_at",
+        "archive_action_event_id",
+    },
+    "audit_event_redactions": {
+        "id",
+        "target_event_id",
+        "json_pointer",
+        "redacted_at",
+        "redaction_reason",
+        "redaction_action_event_id",
+    },
 }
 
 
 class IncompatibleAuditDatabaseError(RuntimeError):
-    """Raised before writes when an existing database is not the V2 schema."""
+    """Raised before writes when an existing database is not the V3 schema."""
+
+
+def _enable_sqlite_foreign_keys(
+    dbapi_connection: object, connection_record: object
+) -> None:
+    """Enable SQLite foreign keys for every project-created SQLite connection.
+
+    SQLite parses foreign-key declarations but does not enforce them unless
+    each connection enables this pragma. The metadata tables rely on their
+    target and lifecycle-action references, so silently leaving enforcement
+    off would make their declared integrity boundary misleading.
+    """
+
+    del connection_record
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
+
+# Tests construct isolated SQLite engines directly; an Engine-level listener
+# keeps their foreign-key behavior aligned with the application engine.
+event.listen(Engine, "connect", _enable_sqlite_foreign_keys)
 
 
 def preflight_database_schema(database_engine: Engine) -> None:
-    """Reject legacy or partially upgraded audit tables without modifying them.
+    """Reject non-V3 audit schemas before ``create_all`` can modify them.
 
     ``create_all`` only creates missing tables; it never upgrades old tables.
-    Inspecting first prevents a V2 application from silently using the original
-    V1 database or a partially upgraded copy as if it were compatible.
+    Inspecting all tables with the ``audit_`` prefix first prevents V3 startup
+    from silently adding metadata tables to V1, V2, partial, or mixed audit
+    schemas. This checks names and column-name sets only, not types,
+    constraints, indexes, or SQLite table definitions.
     """
 
     inspector = inspect(database_engine)
     existing_tables = set(inspector.get_table_names())
     audit_tables = set(EXPECTED_DATABASE_COLUMNS)
-    present_audit_tables = audit_tables & existing_tables
+    present_audit_tables = {
+        table_name for table_name in existing_tables if table_name.startswith("audit_")
+    }
     if not present_audit_tables:
         return
     if present_audit_tables != audit_tables:
         raise IncompatibleAuditDatabaseError(
-            "incompatible audit database schema: configure AUDIT_DB_PATH to a fresh V2 database"
+            "incompatible audit database schema: configure AUDIT_DB_PATH to a fresh V3 database"
         )
 
     for table_name, expected_columns in EXPECTED_DATABASE_COLUMNS.items():
         actual_columns = {column["name"] for column in inspector.get_columns(table_name)}
         if actual_columns != expected_columns:
             raise IncompatibleAuditDatabaseError(
-                "incompatible audit database schema: configure AUDIT_DB_PATH to a fresh V2 database"
+                "incompatible audit database schema: configure AUDIT_DB_PATH to a fresh V3 database"
             )
 
 engine = create_engine(

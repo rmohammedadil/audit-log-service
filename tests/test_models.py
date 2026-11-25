@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.orm import Session
 
 from app.database import Base
-from app.models import AuditChainState, AuditEvent
+from app.models import AuditChainState, AuditEvent, AuditEventArchive, AuditEventRedaction
 from app.services.audit_service import (
     GENESIS_CHAIN_HASH,
     GENESIS_HASH,
@@ -44,6 +44,22 @@ def chain_fields(content_hash: str) -> dict[str, str]:
             previous_chain_hash=GENESIS_CHAIN_HASH,
         ),
     }
+
+
+def persisted_event(session: Session, content_hash: str) -> AuditEvent:
+    """Store one syntactically valid event for metadata-constraint tests."""
+
+    event = AuditEvent(
+        event_type="SYSTEM_EVENT",
+        actor_id="system-1",
+        resource_type="audit_log",
+        resource_id=f"event-{content_hash[:8]}",
+        payload={},
+        **chain_fields(content_hash),
+    )
+    session.add(event)
+    session.flush()
+    return event
 
 
 def test_audit_event_persists_all_required_fields(session: Session) -> None:
@@ -219,4 +235,231 @@ def test_checkpoint_enforces_singleton_identity_and_empty_shape(session: Session
     with pytest.raises(IntegrityError):
         session.commit()
 
+    session.rollback()
+
+
+def test_archive_metadata_persists_utc_timestamp_and_event_references(
+    session: Session,
+) -> None:
+    target_event = persisted_event(session, "e" * 64)
+    action_event = persisted_event(session, "f" * 64)
+    archived_at = datetime(
+        2026,
+        11,
+        25,
+        12,
+        0,
+        0,
+        123456,
+        tzinfo=timezone(timedelta(hours=5, minutes=30)),
+    )
+    archive = AuditEventArchive(
+        target_event_id=target_event.id,
+        archived_at=archived_at,
+        archive_action_event_id=action_event.id,
+    )
+    session.add(archive)
+    session.commit()
+    archive_id = archive.id
+    target_event_id = target_event.id
+    action_event_id = action_event.id
+    session.expunge_all()
+
+    stored_archive = session.get(AuditEventArchive, archive_id)
+
+    assert stored_archive is not None
+    assert stored_archive.target_event_id == target_event_id
+    assert stored_archive.archive_action_event_id == action_event_id
+    assert stored_archive.archived_at == datetime(
+        2026, 11, 25, 6, 30, 0, 123456, tzinfo=timezone.utc
+    )
+
+
+def test_redaction_metadata_persists_without_original_payload_values(
+    session: Session,
+) -> None:
+    target_event = persisted_event(session, "1" * 64)
+    action_event = persisted_event(session, "2" * 64)
+    redaction = AuditEventRedaction(
+        target_event_id=target_event.id,
+        json_pointer="/client/contact/phone",
+        redacted_at=datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc),
+        redaction_reason="PII",
+        redaction_action_event_id=action_event.id,
+    )
+    session.add(redaction)
+    session.commit()
+    redaction_id = redaction.id
+    target_event_id = target_event.id
+    session.expunge_all()
+
+    stored_redaction = session.get(AuditEventRedaction, redaction_id)
+
+    assert stored_redaction is not None
+    assert stored_redaction.target_event_id == target_event_id
+    assert stored_redaction.json_pointer == "/client/contact/phone"
+    assert stored_redaction.redaction_reason == "PII"
+    assert not hasattr(stored_redaction, "original_value")
+
+
+@pytest.mark.parametrize(
+    "metadata_factory",
+    [
+        pytest.param(
+            lambda target_id, action_id: AuditEventArchive(
+                archived_at=datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc),
+                archive_action_event_id=action_id,
+            ),
+            id="archive-target",
+        ),
+        pytest.param(
+            lambda target_id, action_id: AuditEventArchive(
+                target_event_id=target_id,
+                archive_action_event_id=action_id,
+            ),
+            id="archive-timestamp",
+        ),
+        pytest.param(
+            lambda target_id, action_id: AuditEventArchive(
+                target_event_id=target_id,
+                archived_at=datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc),
+            ),
+            id="archive-action",
+        ),
+        pytest.param(
+            lambda target_id, action_id: AuditEventRedaction(
+                json_pointer="/client/ssn",
+                redacted_at=datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc),
+                redaction_reason="PII",
+                redaction_action_event_id=action_id,
+            ),
+            id="redaction-target",
+        ),
+        pytest.param(
+            lambda target_id, action_id: AuditEventRedaction(
+                target_event_id=target_id,
+                redacted_at=datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc),
+                redaction_reason="PII",
+                redaction_action_event_id=action_id,
+            ),
+            id="redaction-pointer",
+        ),
+        pytest.param(
+            lambda target_id, action_id: AuditEventRedaction(
+                target_event_id=target_id,
+                json_pointer="/client/ssn",
+                redaction_reason="PII",
+                redaction_action_event_id=action_id,
+            ),
+            id="redaction-timestamp",
+        ),
+        pytest.param(
+            lambda target_id, action_id: AuditEventRedaction(
+                target_event_id=target_id,
+                json_pointer="/client/ssn",
+                redacted_at=datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc),
+                redaction_action_event_id=action_id,
+            ),
+            id="redaction-reason",
+        ),
+        pytest.param(
+            lambda target_id, action_id: AuditEventRedaction(
+                target_event_id=target_id,
+                json_pointer="/client/ssn",
+                redacted_at=datetime(2026, 11, 25, 12, 0, tzinfo=timezone.utc),
+                redaction_reason="PII",
+            ),
+            id="redaction-action",
+        ),
+    ],
+)
+def test_metadata_required_fields_are_enforced(
+    session: Session, metadata_factory: object
+) -> None:
+    target_event = persisted_event(session, "3" * 64)
+    action_event = persisted_event(session, "4" * 64)
+    metadata = metadata_factory(target_event.id, action_event.id)  # type: ignore[operator]
+    session.add(metadata)
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+    session.rollback()
+
+
+def test_metadata_uniqueness_and_references_are_enforced(session: Session) -> None:
+    target_event = persisted_event(session, "5" * 64)
+    action_event = persisted_event(session, "6" * 64)
+    other_action_event = persisted_event(session, "7" * 64)
+    session.add(
+        AuditEventArchive(
+            target_event_id=target_event.id,
+            archived_at=datetime.now(timezone.utc),
+            archive_action_event_id=action_event.id,
+        )
+    )
+    session.add(
+        AuditEventRedaction(
+            target_event_id=target_event.id,
+            json_pointer="/client/phone",
+            redacted_at=datetime.now(timezone.utc),
+            redaction_reason="PII",
+            redaction_action_event_id=action_event.id,
+        )
+    )
+    session.commit()
+
+    referenced_event = session.get(AuditEvent, target_event.id)
+    assert referenced_event is not None
+    session.delete(referenced_event)
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+
+    session.add(
+        AuditEventArchive(
+            target_event_id=target_event.id,
+            archived_at=datetime.now(timezone.utc),
+            archive_action_event_id=other_action_event.id,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+
+    session.add(
+        AuditEventRedaction(
+            target_event_id=target_event.id,
+            json_pointer="/client/phone",
+            redacted_at=datetime.now(timezone.utc),
+            redaction_reason="PII",
+            redaction_action_event_id=other_action_event.id,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+
+    session.add(
+        AuditEventArchive(
+            target_event_id=target_event.id,
+            archived_at=datetime.now(timezone.utc),
+            archive_action_event_id=99999,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+
+    session.add(
+        AuditEventRedaction(
+            target_event_id=99999,
+            json_pointer="/client/address",
+            redacted_at=datetime.now(timezone.utc),
+            redaction_reason="PII",
+            redaction_action_event_id=action_event.id,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        session.commit()
     session.rollback()
