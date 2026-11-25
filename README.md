@@ -212,6 +212,30 @@ have `firstInconsistencyId: null`.
 Operational database failures return a sanitized HTTP 500 response. Routes do
 not return SQL, database paths, payloads, credentials, or exception details.
 
+### Run configured retention
+
+`POST /audit/retention/run` applies the server-side logical archival policy.
+It accepts no policy or cutoff override. `AUDIT_RETENTION_DAYS` defaults to 90,
+must be a positive integer, and is capped at 36,500 days. Events strictly older
+than the UTC cutoff are retained in the database unchanged, then receive
+archive metadata and one chained `AUDIT_RETENTION_APPLIED` action event.
+
+```bash
+curl -X POST http://127.0.0.1:8000/audit/retention/run
+```
+
+An HTTP 200 response includes `retentionDays`, UTC `cutoff`,
+`archivedEventCount`, `archivedEventIds`, and `actionEventId`. A no-op returns
+an empty ID list and `actionEventId: null`. Integrity rejection returns HTTP
+409; sanitized operational failures return HTTP 500. This endpoint is for a
+trusted local assessment environment only until authentication and authorization
+are implemented.
+
+Logical archival does not delete rows, reclaim storage, or permanently remove
+data. Normal `GET /audit/events` excludes archived business events; add
+`includeArchived=true` to include them. Internal lifecycle events remain
+visible as legitimate audit evidence.
+
 ## Run tests
 
 Run the full suite from the repository root:
@@ -289,8 +313,11 @@ needs to be retained.
   there are no migrations, lifecycle services, archive filtering, redaction
   projection, export, Docker, CI/CD, or production deployment configuration.
 - V3 archive and redaction metadata are a persistence foundation only. They do
-  not yet archive data, mask a returned payload, redact original values, create
-  lifecycle audit-action events, or change verification behavior.
+  not yet redact original values or project redacted payloads. Task 16 now
+  implements logical archival only; redaction and export remain deferred.
+- Retention verifies the full chain before writing and loads each eligible
+  record into memory for one action-event batch. There is no scheduler, batch
+  streaming, concurrent-writer coordination, or storage reclamation.
 - `AuditEventRead` preserves the four persisted event strings exactly as
   stored. Malformed JSON, timestamps, nulls, or incompatible stored types are
   separate retrieval concerns.

@@ -11,7 +11,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas import AuditChainVerificationRead, AuditEventCreate, AuditEventRead
+from app.schemas import (
+    AuditChainVerificationRead,
+    AuditEventCreate,
+    AuditEventRead,
+    RetentionRunRead,
+    RetentionRunRequest,
+)
 from app.services.audit_service import (
     AuditChainIntegrityError,
     DEFAULT_QUERY_LIMIT,
@@ -20,6 +26,7 @@ from app.services.audit_service import (
     query_audit_events,
     verify_audit_chain,
 )
+from app.services.retention_service import RetentionRunResult, run_retention
 
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -87,6 +94,51 @@ def create_audit_event(
     return response
 
 
+@router.post(
+    "/retention/run",
+    response_model=RetentionRunRead,
+    response_model_by_alias=True,
+)
+def run_configured_retention(
+    database_session: Annotated[Session, Depends(get_db)],
+    retention_request: RetentionRunRequest | None = None,
+) -> RetentionRunRead:
+    """Run the configured logical-archive policy in a trusted local setting.
+
+    The empty request model rejects attempted client overrides. The route owns
+    commit/rollback, while the service constructs the linked action event and
+    archive metadata without committing.
+    """
+
+    del retention_request
+    try:
+        result: RetentionRunResult = run_retention(database_session)
+        response = RetentionRunRead(
+            retentionDays=result.retention_days,
+            cutoff=result.cutoff,
+            archivedEventCount=len(result.archived_event_ids),
+            archivedEventIds=list(result.archived_event_ids),
+            actionEventId=result.action_event_id,
+        )
+        database_session.commit()
+    except AuditChainIntegrityError:
+        database_session.rollback()
+        logger.warning("Retention blocked by audit integrity validation")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Audit integrity check failed; retention was not applied",
+        ) from None
+    except (SQLAlchemyError, ValidationError, ValueError, OverflowError):
+        database_session.rollback()
+        logger.error("Retention operation failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to apply retention policy",
+        ) from None
+
+    return response
+
+
 @router.get(
     "/events",
     response_model=list[AuditEventRead],
@@ -112,6 +164,7 @@ def list_audit_events(
     ] = None,
     from_timestamp: Annotated[datetime | None, Query(alias="from")] = None,
     to_timestamp: Annotated[datetime | None, Query(alias="to")] = None,
+    include_archived: Annotated[bool, Query(alias="includeArchived")] = False,
     limit: Annotated[
         int,
         Query(ge=1, le=MAX_QUERY_LIMIT, description="Maximum records to return"),
@@ -137,6 +190,7 @@ def list_audit_events(
             event_type=_validate_filter(event_type, "eventType"),
             from_timestamp=from_timestamp,
             to_timestamp=to_timestamp,
+            include_archived=include_archived,
             limit=limit,
             offset=offset,
         )

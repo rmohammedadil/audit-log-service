@@ -366,8 +366,9 @@ content, content hashes, linked-chain hashes, and checkpoint semantics:
 Both tables reference `audit_events`; SQLite foreign keys are enabled for the
 application and isolated SQLAlchemy engines so those references are enforced.
 They intentionally contain no original sensitive values. Archival and
-redaction are not implemented behavior yet: the metadata is not currently
-created, consumed by queries, applied to payloads, or verified.
+redaction remain distinct: Task 16 creates and verifies archival metadata only.
+Redaction metadata is not created, consumed by queries, applied to payloads,
+or verified yet.
 
 SQLite does not enforce declared `VARCHAR` lengths. A future retention or
 redaction service/API must explicitly validate canonical JSON Pointer syntax,
@@ -388,3 +389,42 @@ implemented. Redaction will be masking, not permanent erasure. Export
 verification will distinguish a bundle's internal digest consistency from a
 comparison against an externally retained expected digest; it will not claim
 independent source authenticity or filtered-result completeness.
+
+## 18. Configurable Retention and Logical Archival
+
+`AUDIT_RETENTION_DAYS` defaults to 90 and must be a positive base-10 integer
+no greater than 36,500. Empty, whitespace-only, fractional, negative, zero,
+non-numeric, and excessive values are configuration errors; an explicit bad
+value never falls back silently. Eligibility uses server-controlled,
+timezone-aware UTC time and is strict: an event timestamp must be earlier than
+`now - retention_days`. Ordinary callers cannot provide a cutoff or duration.
+
+`POST /audit/retention/run` executes the configured policy in the trusted local
+prototype environment. Before writing, it runs full chain and archival-metadata
+verification. It selects unarchived, non-lifecycle business events in ascending
+ID order, appends one `AUDIT_RETENTION_APPLIED` lifecycle event, and creates one
+archive row per selected target. The action payload commits retention days,
+cutoff, archived IDs, count, and the action timestamp; metadata uses that exact
+server-assigned action timestamp. The service flushes but never commits, while
+the route validates its response then commits or rolls back.
+
+Repeated runs with no newly eligible events are no-ops and append no action
+event. Logical archival leaves the original row, content hash, chain hash, and
+checkpoint history intact; it neither deletes data nor reclaims storage.
+Default event queries exclude archived business events through a database-level
+anti-join condition before pagination. `includeArchived=true` includes both
+archived and active events. Internal lifecycle events remain queryable.
+
+Ordinary create input and the ordinary append service reject reserved internal
+types `AUDIT_RETENTION_APPLIED` and `AUDIT_REDACTION_APPLIED`. A narrow internal
+append path reuses normal hashing and checkpoint behavior for lifecycle events.
+This is application-level boundary protection, not authentication or
+authorization.
+
+After the existing event-chain and checkpoint checks succeed, verification
+checks archival lifecycle evidence. It reports `ARCHIVE_MALFORMED_ACTION` for
+invalid archival action payloads and `ARCHIVE_METADATA_MISMATCH` for missing,
+unexpected, duplicate, inconsistent, ineligible, internal, or incorrectly
+timestamped archive metadata. Existing Scenario A per-record and checkpoint
+precedence remains first; lifecycle checks occur afterward with the full chain
+record count and the related action event ID where identifiable.

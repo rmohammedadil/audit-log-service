@@ -9,12 +9,14 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import Base, get_db
+from app.api import audit_routes
 from app.main import app
-from app.models import AuditChainState, AuditEvent
+from app.models import AuditChainState, AuditEvent, AuditEventArchive
+from app.services import retention_service
 from app.services.audit_service import (
     GENESIS_CHAIN_HASH,
     GENESIS_HASH,
@@ -135,6 +137,98 @@ def persisted_chain_evidence(
             )
         )
     return event_evidence, checkpoint_evidence
+
+
+def test_retention_api_archives_and_hides_old_events(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, session_factory = api_client
+    monkeypatch.setenv("AUDIT_RETENTION_DAYS", "1")
+    created = client.post("/audit/events", json=VALID_EVENT)
+    assert created.status_code == 201
+    future = datetime.now(timezone.utc) + timedelta(days=2)
+    monkeypatch.setattr(
+        audit_routes,
+        "run_retention",
+        lambda session: retention_service.run_retention(session, now=future),
+    )
+
+    response = client.post("/audit/retention/run")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["retentionDays"] == 1
+    assert body["archivedEventIds"] == [created.json()["id"]]
+    assert body["actionEventId"] is not None
+    assert client.get("/audit/events").json() == [
+        response for response in client.get("/audit/events").json()
+        if response["eventType"] == "AUDIT_RETENTION_APPLIED"
+    ]
+    included = client.get("/audit/events?includeArchived=true")
+    assert included.status_code == 200
+    assert [event["id"] for event in included.json()] == [1, 2]
+    with session_factory() as database_session:
+        assert database_session.scalar(select(AuditEventArchive)) is not None
+
+
+def test_retention_api_noop_and_rejects_client_policy_override(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = api_client
+
+    assert client.post("/audit/retention/run").json()["actionEventId"] is None
+    override = client.post("/audit/retention/run", json={"retentionDays": 1})
+    assert override.status_code == 422
+
+
+def test_ordinary_api_rejects_reserved_lifecycle_event_type(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = api_client
+
+    response = client.post(
+        "/audit/events", json={**VALID_EVENT, "eventType": " AUDIT_RETENTION_APPLIED "}
+    )
+
+    assert response.status_code == 422
+
+
+def test_retention_api_rejects_corrupt_evidence_without_writes(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    created = client.post("/audit/events", json=VALID_EVENT)
+    assert created.status_code == 201
+    with session_factory() as database_session:
+        database_session.execute(
+            text("UPDATE audit_events SET payload = :payload WHERE id = :event_id"),
+            {"payload": '{"tampered":true}', "event_id": created.json()["id"]},
+        )
+        database_session.commit()
+
+    response = client.post("/audit/retention/run")
+
+    assert response.status_code == 409
+    with session_factory() as database_session:
+        assert database_session.scalar(select(func.count()).select_from(AuditEvent)) == 1
+        assert database_session.scalar(select(AuditEventArchive)) is None
+
+
+def test_retention_api_returns_sanitized_operational_failure(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _ = api_client
+
+    def unavailable_retention(*args: object, **kwargs: object) -> object:
+        raise OperationalError("INSERT", {}, RuntimeError("database unavailable"))
+
+    monkeypatch.setattr(audit_routes, "run_retention", unavailable_retention)
+    response = client.post("/audit/retention/run")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Unable to apply retention policy"}
 
 
 def test_post_event_returns_created_event_and_persists_it(

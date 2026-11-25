@@ -51,6 +51,13 @@ def test_create_schema_parses_public_fields_into_python_names() -> None:
     assert event.model_dump(by_alias=True) == VALID_EVENT
 
 
+def test_create_schema_rejects_normalized_reserved_lifecycle_event_type() -> None:
+    with pytest.raises(ValidationError):
+        AuditEventCreate.model_validate(
+            {**VALID_EVENT, "eventType": " AUDIT_RETENTION_APPLIED "}
+        )
+
+
 @pytest.mark.parametrize(("public_name", "python_name", "maximum_length"), STRING_FIELD_SPECS)
 def test_create_schema_trims_valid_string_fields(
     public_name: str, python_name: str, maximum_length: int

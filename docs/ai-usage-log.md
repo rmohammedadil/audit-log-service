@@ -378,6 +378,56 @@ not represent approval or work that has not occurred.
   permission configuration was not diagnosed or repaired.
 - **Engineer review and approval of this implementation:** Pending.
 
+## Task 16 - Configurable retention and logical archival
+
+- **Engineering improvement:** Implements the approved Scenario B retention
+  slice while retaining original audit events and their existing hash evidence.
+  It does not implement redaction, export, authentication, authorization, or
+  Scenario C.
+- **Engineer direction accepted:** The engineer approved a server-owned,
+  bounded retention policy; strict UTC cutoff behavior; reserved lifecycle
+  event types; one chained archival action per non-empty run; archive-aware
+  retrieval; and bidirectional archive/action verification.
+- **AI contribution:** Added the bounded `AUDIT_RETENTION_DAYS` parser and
+  default, a caller-owned retention service, reserved-type protection at schema
+  and ordinary-service boundaries, an empty policy-run API contract, database
+  archive filtering, lifecycle metadata verification, and isolated service/API
+  regression coverage.
+- **Implementation decision:** The default policy is 90 days and the maximum
+  is 36,500 days. Eligible targets are strictly earlier than the normalized UTC
+  cutoff, unarchived, and not internal lifecycle events. A successful run first
+  performs full read-only verification, then appends one
+  `AUDIT_RETENTION_APPLIED` event whose payload records duration, cutoff,
+  ordered target IDs, count, and action timestamp. Archive metadata receives
+  that exact server timestamp. No-op runs append nothing.
+- **Integrity decision:** Existing content and linked hashes remain unchanged.
+  Lifecycle checks run only after the established event-chain and checkpoint
+  checks. `ARCHIVE_MALFORMED_ACTION` identifies malformed action evidence;
+  `ARCHIVE_METADATA_MISMATCH` identifies missing, unexpected, duplicate,
+  conflicting, ineligible, or timestamp/reference-inconsistent archive state.
+  Redaction metadata verification remains deferred.
+- **Validation performed:** Initial focused retention/API coverage passed, then
+  final focused retention, API, and schema validation passed: 165 tests. The
+  complete suite using a fresh external disposable pytest directory passed:
+  272 tests with one existing Starlette `TestClient` deprecation warning and no
+  failures, skips, or deselections. An isolated V3 startup/no-op retention
+  smoke test passed. A separate disposable eligible-event demonstration passed
+  successful archival, default query exclusion, explicit inclusion, intact
+  full-chain verification, and archive-metadata tampering detection.
+- **Known limitations:** Logical archival retains payloads and storage; it is
+  not permanent erasure. One retention execution materializes all eligible IDs
+  in memory and has no scheduler, batching, concurrency coordination, access
+  control, migration path, external anchoring, or production observability.
+  The lifecycle endpoint is intended only for trusted local assessment use.
+- **Engineer review and conditional approval:** The engineer approved the
+  retention architecture in principle and authorized commit after focused
+  review of lifecycle metadata verification, rollback behavior, API error
+  handling, required adversarial coverage, final validation, and protected
+  database checks. The review-driven cutoff/duration consistency check and
+  focused tests were added before final validation. This remains an approval of
+  logical archival only, not redaction, export, access control, or production
+  readiness.
+
 ## Task 12 - Evidence-preserving response schemas
 
 - **Engineering improvement:** Supports Scenario A audit-evidence fidelity by

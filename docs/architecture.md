@@ -217,3 +217,42 @@ planned as masking, not permanent erasure. Export verification will distinguish
 an internally consistent bundle digest from verification against an externally
 retained expected digest; it will not claim source authenticity or filtered
 result completeness without additional trust mechanisms.
+
+## Task 16 Retention Flow
+
+The retention configuration is process-owned: `AUDIT_RETENTION_DAYS` defaults
+to 90, accepts only a bounded positive integer through 36,500 days, and is
+validated at startup and execution. `run_retention()` accepts an optional
+internal clock solely for deterministic tests; the HTTP endpoint accepts no
+duration or cutoff input. It normalizes the service clock to UTC and treats an
+event as eligible only when its timestamp is strictly earlier than the cutoff.
+
+Before retention writes, the service calls the read-only full verifier. It then
+uses a database-level anti-exists predicate to select unarchived, non-lifecycle
+business events in ascending ID order. If none match, it returns a no-op without
+flushing or appending evidence. Otherwise it appends one internal
+`AUDIT_RETENTION_APPLIED` event through the shared append/checkpoint routine and
+uses the same server timestamp for every associated archive row. The action
+payload contains the policy duration, normalized cutoff, ordered target IDs,
+count, and archival timestamp, enabling later verification without copying
+business payloads. The service flushes only; its route owns commit/rollback.
+
+The ordinary public and service append paths reject reserved lifecycle event
+types. The narrow lifecycle append path is internal application code, not an
+access-control mechanism. Normal event queries exclude archive targets before
+pagination unless `includeArchived=true`; lifecycle action events remain visible.
+
+After normal event and checkpoint verification succeeds, the verifier compares
+archive rows bidirectionally with archival action payloads. It checks target
+existence and order, lifecycle exclusion, cutoff eligibility, duplicate or
+conflicting declarations, action references, counts, timestamps, and that the
+recorded cutoff exactly equals the action timestamp minus its recorded retention
+duration. Lifecycle
+failures use `ARCHIVE_MALFORMED_ACTION` or `ARCHIVE_METADATA_MISMATCH` after all
+existing Scenario A precedence checks. Redaction metadata verification remains
+deferred.
+
+Logical archival is not physical deletion, storage reclamation, or permanent
+erasure. Each run loads its eligible target set and action payload in memory;
+there is no scheduler, batch streaming, concurrent-writer coordination, or
+authentication/authorization in this prototype.

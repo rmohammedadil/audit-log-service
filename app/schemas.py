@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+
+from app.services.audit_service import RESERVED_LIFECYCLE_EVENT_TYPES
 
 
 # These limits intentionally mirror the persisted column limits in AuditEvent.
@@ -30,6 +32,15 @@ class AuditEventCreate(BaseModel):
     resource_type: ResourceType = Field(alias="resourceType")
     resource_id: ResourceId = Field(alias="resourceId")
     payload: dict[str, Any]
+
+    @field_validator("event_type")
+    @classmethod
+    def reject_reserved_lifecycle_event_type(cls, value: str) -> str:
+        """Keep internal lifecycle evidence out of ordinary client input."""
+
+        if value in RESERVED_LIFECYCLE_EVENT_TYPES:
+            raise ValueError("eventType is reserved for internal lifecycle operations")
+        return value
 
 
 class AuditEventRead(BaseModel):
@@ -69,3 +80,21 @@ class AuditChainVerificationRead(BaseModel):
     first_inconsistency_id: int | None = Field(alias="firstInconsistencyId")
     violation_type: str | None = Field(alias="violationType")
     detail: str
+
+
+class RetentionRunRead(BaseModel):
+    """Public outcome of a server-configured logical archival run."""
+
+    model_config = ConfigDict(validate_by_name=True)
+
+    retention_days: int = Field(alias="retentionDays")
+    cutoff: datetime
+    archived_event_count: int = Field(alias="archivedEventCount")
+    archived_event_ids: list[int] = Field(alias="archivedEventIds")
+    action_event_id: int | None = Field(alias="actionEventId")
+
+
+class RetentionRunRequest(BaseModel):
+    """Deliberately empty body: policy and cutoff remain server-controlled."""
+
+    model_config = ConfigDict(extra="forbid")

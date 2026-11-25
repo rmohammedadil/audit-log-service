@@ -6,11 +6,14 @@ from fastapi import FastAPI
 from app import models  # Registers SQLAlchemy models before schema creation.
 from app.api.audit_routes import router as audit_router
 from app.database import Base, engine, preflight_database_schema
+from app.services.retention_service import configured_retention_days
 
 
 def initialize_database() -> None:
     """Preflight the configured database before creating fresh V3 tables."""
 
+    # Reject an unsafe explicit policy before opening or mutating a database.
+    configured_retention_days()
     preflight_database_schema(engine)
     Base.metadata.create_all(bind=engine)
 

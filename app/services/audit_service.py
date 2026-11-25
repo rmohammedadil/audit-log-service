@@ -9,17 +9,17 @@ with the caller.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 from json import JSONDecodeError
 import re
 from typing import Any
 
-from sqlalchemy import String, cast, func, select
+from sqlalchemy import String, cast, exists, func, select
 from sqlalchemy.orm import Session
 
-from app.models import AuditChainState, AuditEvent, utc_now
+from app.models import AuditChainState, AuditEvent, AuditEventArchive, utc_now
 
 
 GENESIS_HASH = "AUDIT_LOG_GENESIS_V1"
@@ -29,6 +29,12 @@ GENESIS_CHAIN_HASH = sha256(b"audit-log-chain-genesis-v1").hexdigest()
 DEFAULT_QUERY_LIMIT = 100
 MAX_QUERY_LIMIT = 1000
 _DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
+_MAX_ARCHIVE_RETENTION_DAYS = 36_500
+AUDIT_RETENTION_APPLIED = "AUDIT_RETENTION_APPLIED"
+AUDIT_REDACTION_APPLIED = "AUDIT_REDACTION_APPLIED"
+RESERVED_LIFECYCLE_EVENT_TYPES = frozenset(
+    {AUDIT_RETENTION_APPLIED, AUDIT_REDACTION_APPLIED}
+)
 
 VIOLATION_CHECKPOINT_MISSING = "CHECKPOINT_MISSING"
 VIOLATION_CONTENT_HASH_MISMATCH = "CONTENT_HASH_MISMATCH"
@@ -42,6 +48,8 @@ VIOLATION_CHECKPOINT_VERSION_MISMATCH = "CHECKPOINT_VERSION_MISMATCH"
 VIOLATION_CHECKPOINT_COUNT_MISMATCH = "CHECKPOINT_COUNT_MISMATCH"
 VIOLATION_CHECKPOINT_HEAD_ID_MISMATCH = "CHECKPOINT_HEAD_ID_MISMATCH"
 VIOLATION_CHECKPOINT_HEAD_CHAIN_HASH_MISMATCH = "CHECKPOINT_HEAD_CHAIN_HASH_MISMATCH"
+VIOLATION_ARCHIVE_MALFORMED_ACTION = "ARCHIVE_MALFORMED_ACTION"
+VIOLATION_ARCHIVE_METADATA_MISMATCH = "ARCHIVE_METADATA_MISMATCH"
 
 
 @dataclass(frozen=True)
@@ -62,6 +70,10 @@ class AuditChainIntegrityError(Exception):
     belongs to the verification API task so non-HTTP callers retain the same
     transaction ownership and error semantics.
     """
+
+
+class ReservedLifecycleEventTypeError(ValueError):
+    """Raised when ordinary callers attempt to create an internal event type."""
 
 
 def normalize_timestamp(timestamp: datetime) -> str:
@@ -213,6 +225,63 @@ def append_audit_event(
     corrupt tail evidence without claiming to replace full-chain verification.
     """
 
+    if event_type in RESERVED_LIFECYCLE_EVENT_TYPES:
+        raise ReservedLifecycleEventTypeError(
+            "reserved lifecycle event types require the internal append path"
+        )
+    return _append_event(
+        session,
+        event_type=event_type,
+        actor_id=actor_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        payload=payload,
+        timestamp=None,
+    )
+
+
+def append_lifecycle_audit_event(
+    session: Session,
+    *,
+    event_type: str,
+    actor_id: str,
+    resource_type: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    timestamp: datetime,
+) -> AuditEvent:
+    """Append a server-controlled lifecycle event through the normal chain.
+
+    This narrow internal path exists so retention can bind the action event's
+    server timestamp to metadata without allowing the public creation path to
+    select lifecycle event types or timestamps.
+    """
+
+    if event_type not in RESERVED_LIFECYCLE_EVENT_TYPES:
+        raise ValueError("internal append requires a reserved lifecycle event type")
+    return _append_event(
+        session,
+        event_type=event_type,
+        actor_id=actor_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        payload=payload,
+        timestamp=timestamp,
+    )
+
+
+def _append_event(
+    session: Session,
+    *,
+    event_type: str,
+    actor_id: str,
+    resource_type: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    timestamp: datetime | None,
+) -> AuditEvent:
+    """Perform the shared append/checkpoint operation without committing."""
+
     latest_event = session.scalar(
         select(AuditEvent).order_by(AuditEvent.id.desc()).limit(1)
     )
@@ -231,14 +300,14 @@ def append_audit_event(
     previous_chain_hash = (
         latest_event.chain_hash if latest_event is not None else GENESIS_CHAIN_HASH
     )
-    timestamp = utc_now()
+    assigned_timestamp = utc_now() if timestamp is None else timestamp
     content_hash = calculate_content_hash(
         event_type=event_type,
         actor_id=actor_id,
         resource_type=resource_type,
         resource_id=resource_id,
         payload=payload,
-        timestamp=timestamp,
+        timestamp=assigned_timestamp,
     )
     chain_hash = calculate_chain_hash(
         hash_scheme_version=HASH_SCHEME_VERSION,
@@ -251,7 +320,7 @@ def append_audit_event(
         resource_type=resource_type,
         resource_id=resource_id,
         payload=payload,
-        timestamp=timestamp,
+        timestamp=assigned_timestamp,
         previous_hash=previous_hash,
         content_hash=content_hash,
         hash_scheme_version=HASH_SCHEME_VERSION,
@@ -403,6 +472,163 @@ def _decode_persisted_timestamp(raw_timestamp: object) -> datetime:
     return timestamp.astimezone(timezone.utc)
 
 
+def _parse_archive_action_payload(
+    payload: dict[str, Any], action_timestamp: datetime
+) -> tuple[tuple[int, ...], datetime, datetime]:
+    """Validate the deterministic evidence emitted by retention execution."""
+
+    expected_fields = {
+        "archivedAt",
+        "archivedEventCount",
+        "archivedEventIds",
+        "cutoff",
+        "retentionDays",
+    }
+    if set(payload) != expected_fields:
+        raise ValueError("archive action payload fields are invalid")
+    target_ids = payload["archivedEventIds"]
+    if not isinstance(target_ids, list) or not target_ids:
+        raise ValueError("archive action targets are invalid")
+    if any(type(target_id) is not int for target_id in target_ids):
+        raise ValueError("archive action targets are invalid")
+    if target_ids != sorted(target_ids) or len(set(target_ids)) != len(target_ids):
+        raise ValueError("archive action targets are not deterministic")
+    if (
+        type(payload["archivedEventCount"]) is not int
+        or payload["archivedEventCount"] != len(target_ids)
+    ):
+        raise ValueError("archive action count does not match targets")
+    if (
+        type(payload["retentionDays"]) is not int
+        or not 0 < payload["retentionDays"] <= _MAX_ARCHIVE_RETENTION_DAYS
+    ):
+        raise ValueError("archive action retention duration is invalid")
+    cutoff = _decode_persisted_timestamp(payload["cutoff"])
+    archived_at = _decode_persisted_timestamp(payload["archivedAt"])
+    if normalize_timestamp(archived_at) != normalize_timestamp(action_timestamp):
+        raise ValueError("archive action timestamp is inconsistent")
+    if cutoff != archived_at - timedelta(days=payload["retentionDays"]):
+        raise ValueError("archive action cutoff is inconsistent with retention duration")
+    return tuple(target_ids), cutoff, archived_at
+
+
+def _verify_archive_metadata(
+    events: list[Any], archives: list[Any], checked_record_count: int
+) -> ChainVerificationResult | None:
+    """Compare logical-archive rows with their chained action evidence.
+
+    This runs only after the original event chain and checkpoint pass, so it
+    cannot change established Scenario A precedence. It reads no ORM entities
+    and never repairs inconsistent lifecycle evidence.
+    """
+
+    events_by_id = {event["id"]: event for event in events}
+    declared_targets: dict[int, int] = {}
+    for action in events:
+        if action["event_type"] != AUDIT_RETENTION_APPLIED:
+            continue
+        try:
+            payload = _decode_persisted_payload(action["payload_raw"])
+            action_timestamp = _decode_persisted_timestamp(action["timestamp_raw"])
+            target_ids, cutoff, archived_at = _parse_archive_action_payload(
+                payload, action_timestamp
+            )
+        except (JSONDecodeError, TypeError, ValueError, UnicodeDecodeError, OverflowError):
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=action["id"],
+                violation_type=VIOLATION_ARCHIVE_MALFORMED_ACTION,
+                detail="archival lifecycle action evidence is malformed",
+            )
+        for target_id in target_ids:
+            target = events_by_id.get(target_id)
+            if (
+                target is None
+                or target_id >= action["id"]
+                or target["event_type"] in RESERVED_LIFECYCLE_EVENT_TYPES
+            ):
+                return _verification_failure(
+                    checked_record_count=checked_record_count,
+                    first_inconsistency_id=action["id"],
+                    violation_type=VIOLATION_ARCHIVE_METADATA_MISMATCH,
+                    detail="archival action declares an invalid target event",
+                )
+            try:
+                target_timestamp = _decode_persisted_timestamp(target["timestamp_raw"])
+            except (TypeError, ValueError, OverflowError):
+                return _verification_failure(
+                    checked_record_count=checked_record_count,
+                    first_inconsistency_id=target_id,
+                    violation_type=VIOLATION_ARCHIVE_METADATA_MISMATCH,
+                    detail="archival target timestamp cannot be validated",
+                )
+            if target_timestamp >= cutoff or target_id in declared_targets:
+                return _verification_failure(
+                    checked_record_count=checked_record_count,
+                    first_inconsistency_id=action["id"],
+                    violation_type=VIOLATION_ARCHIVE_METADATA_MISMATCH,
+                    detail="archival action declares inconsistent targets",
+                )
+            declared_targets[target_id] = action["id"]
+
+    metadata_by_target: dict[int, Any] = {}
+    for archive in archives:
+        target_id = archive["target_event_id"]
+        if target_id in metadata_by_target:
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=archive["archive_action_event_id"],
+                violation_type=VIOLATION_ARCHIVE_METADATA_MISMATCH,
+                detail="duplicate archive metadata targets exist",
+            )
+        metadata_by_target[target_id] = archive
+        expected_action_id = declared_targets.get(target_id)
+        if expected_action_id != archive["archive_action_event_id"]:
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=archive["archive_action_event_id"],
+                violation_type=VIOLATION_ARCHIVE_METADATA_MISMATCH,
+                detail="archive metadata does not match lifecycle action evidence",
+            )
+        action = events_by_id.get(expected_action_id)
+        if action is None:
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=target_id,
+                violation_type=VIOLATION_ARCHIVE_METADATA_MISMATCH,
+                detail="archive metadata references a missing lifecycle action",
+            )
+        try:
+            payload = _decode_persisted_payload(action["payload_raw"])
+            action_timestamp = _decode_persisted_timestamp(action["timestamp_raw"])
+            _, _, archived_at = _parse_archive_action_payload(payload, action_timestamp)
+            metadata_timestamp = _decode_persisted_timestamp(archive["archived_at_raw"])
+        except (JSONDecodeError, TypeError, ValueError, UnicodeDecodeError, OverflowError):
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=expected_action_id,
+                violation_type=VIOLATION_ARCHIVE_METADATA_MISMATCH,
+                detail="archive metadata timestamp cannot be validated",
+            )
+        if normalize_timestamp(metadata_timestamp) != normalize_timestamp(archived_at):
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=expected_action_id,
+                violation_type=VIOLATION_ARCHIVE_METADATA_MISMATCH,
+                detail="archive metadata timestamp does not match lifecycle action",
+            )
+
+    for target_id, action_id in declared_targets.items():
+        if target_id not in metadata_by_target:
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=action_id,
+                violation_type=VIOLATION_ARCHIVE_METADATA_MISMATCH,
+                detail="lifecycle action is missing archive metadata",
+            )
+    return None
+
+
 def verify_audit_chain(session: Session) -> ChainVerificationResult:
     """Verify persisted events and checkpoint state without changing either.
 
@@ -438,6 +664,11 @@ def verify_audit_chain(session: Session) -> ChainVerificationResult:
         AuditChainState.head_event_id,
         AuditChainState.head_chain_hash,
     ).where(AuditChainState.singleton_id == 1)
+    archive_statement = select(
+        AuditEventArchive.target_event_id,
+        cast(AuditEventArchive.archived_at, String).label("archived_at_raw"),
+        AuditEventArchive.archive_action_event_id,
+    ).order_by(AuditEventArchive.target_event_id.asc())
     # Column mappings come from the database result, not the session's identity
     # map, and no_autoflush preserves unrelated local changes. Selecting raw
     # text keeps JSON/timestamp parsing under the per-event loop below, where a
@@ -446,6 +677,7 @@ def verify_audit_chain(session: Session) -> ChainVerificationResult:
     with session.no_autoflush:
         events = list(session.execute(event_statement).mappings())
         checkpoint = session.execute(checkpoint_statement).mappings().one_or_none()
+        archives = list(session.execute(archive_statement).mappings())
 
     if events and checkpoint is None:
         return _verification_failure(
@@ -566,6 +798,9 @@ def verify_audit_chain(session: Session) -> ChainVerificationResult:
     actual_count = len(events)
     actual_head = events[-1] if events else None
     if checkpoint is None:
+        archive_failure = _verify_archive_metadata(events, archives, actual_count)
+        if archive_failure is not None:
+            return archive_failure
         return ChainVerificationResult(
             is_intact=True,
             checked_record_count=0,
@@ -603,6 +838,9 @@ def verify_audit_chain(session: Session) -> ChainVerificationResult:
             violation_type=VIOLATION_CHECKPOINT_HEAD_CHAIN_HASH_MISMATCH,
             detail="checkpoint head chain hash does not match the persisted chain head",
         )
+    archive_failure = _verify_archive_metadata(events, archives, actual_count)
+    if archive_failure is not None:
+        return archive_failure
     return ChainVerificationResult(
         is_intact=True,
         checked_record_count=actual_count,
@@ -629,6 +867,7 @@ def query_audit_events(
     event_type: str | None = None,
     from_timestamp: datetime | None = None,
     to_timestamp: datetime | None = None,
+    include_archived: bool = False,
     limit: int = DEFAULT_QUERY_LIMIT,
     offset: int = 0,
 ) -> list[AuditEvent]:
@@ -642,6 +881,8 @@ def query_audit_events(
 
     # ``bool`` is a subclass of ``int`` in Python, so an exact type check is
     # needed to keep direct service callers from treating True as page size 1.
+    if type(include_archived) is not bool:
+        raise ValueError("include_archived must be a boolean")
     if type(limit) is not int:
         raise ValueError("limit must be an integer")
     if type(offset) is not int:
@@ -678,6 +919,15 @@ def query_audit_events(
         statement = statement.where(AuditEvent.timestamp >= normalized_from)
     if normalized_to is not None:
         statement = statement.where(AuditEvent.timestamp <= normalized_to)
+    if not include_archived:
+        # Keep archival filtering in SQL so pagination applies to visible rows.
+        statement = statement.where(
+            ~exists(
+                select(AuditEventArchive.id).where(
+                    AuditEventArchive.target_event_id == AuditEvent.id
+                )
+            )
+        )
 
     statement = statement.order_by(AuditEvent.id.asc()).limit(limit).offset(offset)
 
