@@ -63,6 +63,10 @@ REDACTION_REASON_CODES = frozenset(
 )
 REDACTION_MARKER = "[REDACTED]"
 MAX_REDACTION_PATHS = 50
+CLIENT_ACCOUNT_ACCESS = "CLIENT_ACCOUNT_ACCESS"
+ACCESS_RESOURCE_TYPE = "customer_account"
+ACCESS_OPERATIONS = frozenset({"READ", "UPDATE", "DELETE", "CREATE"})
+ACCESS_OUTCOMES = frozenset({"SUCCESS", "DENIED", "FAILURE"})
 
 
 @dataclass(frozen=True)
@@ -1174,3 +1178,74 @@ def query_audit_events(
     # that contain unrelated pending objects.
     with session.no_autoflush:
         return list(session.scalars(statement))
+
+
+def is_canonical_access_payload(payload: object) -> bool:
+    """Identify only explicitly recorded client-account access evidence."""
+
+    return (
+        isinstance(payload, dict)
+        and set(payload).issubset({"operation", "outcome", "details"})
+        and {"operation", "outcome"}.issubset(payload)
+        and payload.get("operation") in ACCESS_OPERATIONS
+        and payload.get("outcome") in ACCESS_OUTCOMES
+        and ("details" not in payload or isinstance(payload["details"], dict))
+    )
+
+
+def query_access_reports(
+    session: Session,
+    *,
+    account_id: str | None,
+    actor_id: str | None,
+    operation: str | None,
+    outcome: str | None,
+    from_timestamp: datetime,
+    to_timestamp: datetime,
+    limit: int = DEFAULT_QUERY_LIMIT,
+    offset: int = 0,
+) -> list[AuditEvent]:
+    """Read verified, explicitly recorded access events before pagination.
+
+    The canonical access contract avoids inferring outcomes from unrelated
+    historical payloads.  JSON payload operation/outcome filtering remains in
+    Python for portable SQLite behaviour, but occurs before pagination.
+    """
+
+    if type(limit) is not int or not 1 <= limit <= MAX_QUERY_LIMIT:
+        raise ValueError(f"limit must be between 1 and {MAX_QUERY_LIMIT}")
+    if type(offset) is not int or offset < 0:
+        raise ValueError("offset must be a non-negative integer")
+    if operation is not None and operation not in ACCESS_OPERATIONS:
+        raise ValueError("operation is invalid")
+    if outcome is not None and outcome not in ACCESS_OUTCOMES:
+        raise ValueError("outcome is invalid")
+    normalized_from = _normalize_query_timestamp(from_timestamp, "from_timestamp")
+    normalized_to = _normalize_query_timestamp(to_timestamp, "to_timestamp")
+    if normalized_from > normalized_to:
+        raise ValueError("from_timestamp must not be after to_timestamp")
+    verification = verify_audit_chain(session)
+    if not verification.is_intact:
+        raise AuditChainIntegrityError("access reporting requires intact source evidence")
+
+    statement = (
+        select(AuditEvent)
+        .where(AuditEvent.event_type == CLIENT_ACCOUNT_ACCESS)
+        .where(AuditEvent.resource_type == ACCESS_RESOURCE_TYPE)
+        .where(AuditEvent.timestamp >= normalized_from)
+        .where(AuditEvent.timestamp <= normalized_to)
+        .order_by(AuditEvent.id.asc())
+    )
+    if account_id is not None:
+        statement = statement.where(AuditEvent.resource_id == account_id)
+    if actor_id is not None:
+        statement = statement.where(AuditEvent.actor_id == actor_id)
+    with session.no_autoflush:
+        candidates = list(session.scalars(statement))
+    matches = [
+        event for event in candidates
+        if is_canonical_access_payload(event.payload)
+        and (operation is None or event.payload["operation"] == operation)
+        and (outcome is None or event.payload["outcome"] == outcome)
+    ]
+    return matches[offset : offset + limit]

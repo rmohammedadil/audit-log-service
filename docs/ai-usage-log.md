@@ -394,6 +394,21 @@ not represent approval or work that has not occurred.
   passed. Remaining Swagger/manual acceptance checks are deferred to final
   application acceptance; no claim is made that they were completed.
 
+## Task 21 - Compliance reporting
+
+- **AI contribution:** Implemented a read-only access-report route, explicit
+  access-event contract validation, verified filtering/pagination, and isolated
+  API coverage for filtering, UTC validation, redaction, archival inclusion,
+  invalid input, and corrupt-source rejection.
+- **Scope boundary:** The report uses existing verification, lifecycle, archive,
+  and redaction behavior. It covers only explicitly recorded access events and
+  does not infer outcomes from historical payloads. JWT and regulator RBAC are
+  deferred to Task 22; manual validation remains deferred to final testing.
+- **Validation:** Focused API coverage passed: 102 tests with one existing
+  Starlette `TestClient` warning. The complete regression suite passed: 306
+  tests with the same single warning. No database migration or dependency
+  change was made.
+
 ## Task 16 - Configurable retention and logical archival
 
 - **Engineering improvement:** Implements the approved Scenario B retention

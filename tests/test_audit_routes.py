@@ -16,7 +16,7 @@ from app.database import Base, get_db
 from app.api import audit_routes
 from app.main import app
 from app.models import AuditChainState, AuditEvent, AuditEventArchive, AuditEventRedaction
-from app.services import retention_service
+from app.services import audit_service, retention_service
 from app.services.audit_service import (
     GENESIS_CHAIN_HASH,
     GENESIS_HASH,
@@ -26,6 +26,7 @@ from app.services.audit_service import (
     VIOLATION_CONTENT_HASH_MISMATCH,
     VIOLATION_MALFORMED_EVENT_CONTENT,
     calculate_content_hash,
+    append_audit_event,
 )
 
 
@@ -881,3 +882,102 @@ def test_export_api_rejects_invalid_selector_input(
     response = client.post("/audit/exports", json=body)
     assert response.status_code == 422
     assert event_count(session_factory) == 0
+
+
+def access_event(account: str, actor: str, operation: str, outcome: str = "SUCCESS") -> dict:
+    return {
+        "eventType": "CLIENT_ACCOUNT_ACCESS",
+        "actorId": actor,
+        "resourceType": "customer_account",
+        "resourceId": account,
+        "payload": {"operation": operation, "outcome": outcome, "details": {"contact": "private@example.test"}},
+    }
+
+
+def test_access_report_filters_orders_paginates_and_masks_redaction(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = api_client
+    first = client.post("/audit/events", json=access_event("account-1", "advisor-a", "READ"))
+    second = client.post("/audit/events", json=access_event("account-1", "advisor-a", "UPDATE", "DENIED"))
+    client.post("/audit/events", json=VALID_EVENT)
+    assert first.status_code == second.status_code == 201
+    redaction = client.post(f"/audit/events/{first.json()['id']}/redact", json={"paths": ["/details/contact"], "reason": "SENSITIVE_DATA"})
+    assert redaction.status_code == 200
+
+    params = {"from": "2020-01-01T00:00:00Z", "to": "2030-01-01T00:00:00Z", "accountId": "account-1", "actorId": "advisor-a", "limit": 1}
+    response = client.get("/audit/access-reports", params=params)
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == first.json()["id"]
+    assert response.json()[0]["operation"] == "READ"
+    assert response.json()[0]["payload"]["details"]["contact"] == "[REDACTED]"
+    next_page = client.get("/audit/access-reports", params={**params, "offset": 1, "operation": "UPDATE", "outcome": "DENIED"})
+    assert [record["id"] for record in next_page.json()] == []
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {**VALID_EVENT, "eventType": "CLIENT_ACCOUNT_ACCESS"},
+        {**access_event("account-1", "actor", "READ"), "resourceType": "other"},
+        {**access_event("account-1", "actor", "READ"), "payload": {"operation": "READ", "outcome": "MAYBE"}},
+    ],
+)
+def test_access_event_contract_rejects_ambiguous_input(
+    api_client: tuple[TestClient, sessionmaker[Session]], payload: dict
+) -> None:
+    client, _ = api_client
+    assert client.post("/audit/events", json=payload).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"to": "2030-01-01T00:00:00Z"},
+        {"from": "2026-01-01T00:00:00", "to": "2030-01-01T00:00:00Z"},
+        {"from": "2030-01-01T00:00:00Z", "to": "2020-01-01T00:00:00Z"},
+        {"from": "2020-01-01T00:00:00Z", "to": "2030-01-01T00:00:00Z", "operation": "PRINT"},
+    ],
+)
+def test_access_report_rejects_invalid_requests(
+    api_client: tuple[TestClient, sessionmaker[Session]], params: dict[str, str]
+) -> None:
+    client, _ = api_client
+    assert client.get("/audit/access-reports", params=params).status_code == 422
+
+
+def test_access_report_rejects_corrupt_source(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    created = client.post("/audit/events", json=access_event("account-1", "actor", "READ"))
+    with session_factory() as database_session:
+        database_session.execute(text("UPDATE audit_events SET payload = :payload WHERE id = :id"), {"payload": '{""bad"":true}', "id": created.json()["id"]})
+        database_session.commit()
+    response = client.get("/audit/access-reports", params={"from": "2020-01-01T00:00:00Z", "to": "2030-01-01T00:00:00Z"})
+    assert response.status_code == 409
+
+
+def test_access_report_includes_archived_records_by_default(
+    api_client: tuple[TestClient, sessionmaker[Session]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, session_factory = api_client
+    now = datetime(2026, 11, 25, tzinfo=timezone.utc)
+    monkeypatch.setenv("AUDIT_RETENTION_DAYS", "30")
+    monkeypatch.setattr(audit_service, "utc_now", lambda: now - timedelta(days=31))
+    with session_factory() as database_session:
+        event = append_audit_event(
+            database_session, event_type="CLIENT_ACCOUNT_ACCESS", actor_id="archived-actor",
+            resource_type="customer_account", resource_id="archived-account",
+            payload={"operation": "READ", "outcome": "SUCCESS"},
+        )
+        event_id = event.id
+        database_session.commit()
+        retention_service.run_retention(database_session, now=now)
+        database_session.commit()
+    response = client.get("/audit/access-reports", params={
+        "from": "2026-01-01T00:00:00Z", "to": "2026-12-31T00:00:00Z",
+        "accountId": "archived-account",
+    })
+    assert response.status_code == 200
+    assert [record["id"] for record in response.json()] == [event_id]

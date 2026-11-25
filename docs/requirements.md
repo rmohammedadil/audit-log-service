@@ -514,3 +514,22 @@ role under least privilege, validate token issuer/audience/expiry/signature,
 avoid logging tokens or account data, and return 401/403 without leaking
 evidence. Current endpoints have no authentication and must not be represented
 as regulator-ready.
+
+## 22. Scenario C access reporting implementation
+
+`GET /audit/access-reports` implements the approved prototype report. `from`
+and `to` are required timezone-aware UTC-comparable boundaries; optional
+`accountId`, `actorId`, `operation`, `outcome`, `limit`, and `offset` combine
+with AND semantics before pagination. It includes archived records by default,
+orders by ascending ID, returns 200 for valid empty/nonempty reports, 422 for
+invalid input, 409 for failed source verification, and sanitized 500 responses
+for database failures.
+
+The canonical recorded-access contract is `CLIENT_ACCOUNT_ACCESS` with
+`resourceType` `customer_account` and payload keys `operation`, `outcome`, and
+optional object `details`. Operations are READ, UPDATE, DELETE, CREATE;
+outcomes are SUCCESS, DENIED, FAILURE. The service excludes ambiguous ordinary
+events rather than inferring access outcomes from their payloads. It performs
+full verification first, projects existing redaction overlays, and preserves
+original content/chain references. Reporting covers recorded events only and
+does not establish regulatory compliance or external-log completeness.

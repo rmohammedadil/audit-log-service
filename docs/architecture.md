@@ -318,3 +318,17 @@ with secure key/configuration management, claim validation, sanitized 401/403
 responses, and no credentials or sensitive payloads in logs. Current same-
 database trust, no-concurrency, whole-chain-memory, migration, and external
 anchoring limitations remain.
+
+## Task 21 access-report flow
+
+The route delegates to a read-only service that first runs full source and
+lifecycle verification. It restricts SQL candidates to explicit access event
+type, client-account resource type, UTC boundaries, account, and actor. It then
+validates the canonical payload contract and applies operation/outcome filters
+before slicing the deterministic result page. Existing redaction projection is
+applied only after trusted source selection, and archived records are retained
+in the report by default. No report operation writes evidence.
+
+The implementation deliberately does not translate generic audit events into
+access events. It therefore cannot demonstrate completeness of access logging;
+authentication and regulator-role authorization remain future Task 22 work.

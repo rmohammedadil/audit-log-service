@@ -7,7 +7,14 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
-from app.services.audit_service import RESERVED_LIFECYCLE_EVENT_TYPES
+from app.services.audit_service import (
+    ACCESS_OUTCOMES,
+    ACCESS_OPERATIONS,
+    ACCESS_RESOURCE_TYPE,
+    CLIENT_ACCOUNT_ACCESS,
+    RESERVED_LIFECYCLE_EVENT_TYPES,
+    is_canonical_access_payload,
+)
 
 
 # These limits intentionally mirror the persisted column limits in AuditEvent.
@@ -42,6 +49,17 @@ class AuditEventCreate(BaseModel):
             raise ValueError("eventType is reserved for internal lifecycle operations")
         return value
 
+    @model_validator(mode="after")
+    def require_canonical_access_contract(self) -> "AuditEventCreate":
+        """Make access reports depend on explicit, rather than inferred, data."""
+
+        if self.event_type == CLIENT_ACCOUNT_ACCESS:
+            if self.resource_type != ACCESS_RESOURCE_TYPE:
+                raise ValueError("client-account access events require resourceType customer_account")
+            if not is_canonical_access_payload(self.payload):
+                raise ValueError("access payload must contain only valid operation and outcome")
+        return self
+
 
 class AuditEventRead(BaseModel):
     """API representation of a persisted audit event and its integrity data."""
@@ -69,6 +87,13 @@ class AuditEventQueryRead(AuditEventRead):
     """Retrieval view: hashes describe original evidence, payload may be masked."""
 
     redacted_paths: list[str] = Field(default_factory=list, alias="redactedPaths")
+
+
+class AuditAccessReportRead(AuditEventQueryRead):
+    """Read-only regulator-report representation of an explicit access event."""
+
+    operation: str
+    outcome: str
 
 
 class RedactionRequest(BaseModel):

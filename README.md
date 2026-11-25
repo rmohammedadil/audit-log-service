@@ -279,6 +279,52 @@ reports redacted records as not independently recomputable. An externally
 retained expected digest establishes only that the supplied file matches that
 digest; neither command proves source authenticity or export completeness.
 
+### Report recorded account access
+
+`GET /audit/access-reports` is a trusted-local prototype report for explicitly
+recorded client-account access. It requires UTC `from` and `to` parameters and
+accepts optional `accountId`, `actorId`, `operation`, `outcome`, `limit`, and
+`offset`. Archived records are included by default; redaction overlays remain
+applied.
+
+An access event must be created as `eventType: "CLIENT_ACCOUNT_ACCESS"`,
+`resourceType: "customer_account"`, and a payload with `operation` (`READ`,
+`UPDATE`, `DELETE`, or `CREATE`) and `outcome` (`SUCCESS`, `DENIED`, or
+`FAILURE`), plus optional object-valued `details`. The service does not infer
+access or outcomes from ordinary audit events.
+
+```text
+/audit/access-reports?from=2026-01-01T00:00:00Z&to=2026-12-31T00:00:00Z&accountId=account-1001
+```
+
+The endpoint verifies the full source chain first and returns 409 for integrity
+failure. It reports recorded application evidence only; it does not establish
+regulatory compliance or completeness of external access logging. JWT and
+regulator-role authorization are deferred.
+
+### Report recorded account access
+
+`GET /audit/access-reports` is a trusted-local prototype report for explicitly
+recorded client-account access. It requires UTC `from` and `to` parameters and
+accepts optional `accountId`, `actorId`, `operation`, `outcome`, `limit`, and
+`offset`. Archived records are included by default; redaction overlays remain
+applied.
+
+An access event must be created as `eventType: "CLIENT_ACCOUNT_ACCESS"`,
+`resourceType: "customer_account"`, and a payload with `operation` (`READ`,
+`UPDATE`, `DELETE`, or `CREATE`) and `outcome` (`SUCCESS`, `DENIED`, or
+`FAILURE`), plus optional object-valued `details`. The service does not infer
+access or outcomes from ordinary audit events.
+
+```text
+/audit/access-reports?from=2026-01-01T00:00:00Z&to=2026-12-31T00:00:00Z&accountId=account-1001
+```
+
+The endpoint verifies the full source chain first and returns 409 for integrity
+failure. It reports recorded application evidence only; it does not establish
+regulatory compliance or completeness of external access logging. JWT and
+regulator-role authorization are deferred.
+
 ## Run tests
 
 Run the full suite from the repository root:

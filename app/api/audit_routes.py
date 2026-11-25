@@ -17,6 +17,7 @@ from app.schemas import (
     AuditEventCreate,
     AuditEventRead,
     AuditEventQueryRead,
+    AuditAccessReportRead,
     AuditExportRequest,
     RedactionRead,
     RedactionRequest,
@@ -29,6 +30,7 @@ from app.services.audit_service import (
     MAX_QUERY_LIMIT,
     append_audit_event,
     query_audit_events,
+    query_access_reports,
     verify_audit_chain,
 )
 from app.services.retention_service import RetentionRunResult, run_retention
@@ -222,6 +224,69 @@ def create_export(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to create audit export",
         ) from None
+
+
+@router.get(
+    "/access-reports",
+    response_model=list[AuditAccessReportRead],
+    response_model_by_alias=True,
+)
+def list_access_reports(
+    from_timestamp: Annotated[datetime, Query(alias="from")],
+    to_timestamp: Annotated[datetime, Query(alias="to")],
+    database_session: Annotated[Session, Depends(get_db)],
+    account_id: Annotated[str | None, Query(alias="accountId", min_length=1, max_length=256)] = None,
+    actor_id: Annotated[str | None, Query(alias="actorId", min_length=1, max_length=256)] = None,
+    operation: Annotated[str | None, Query(min_length=1, max_length=16)] = None,
+    outcome: Annotated[str | None, Query(min_length=1, max_length=16)] = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_QUERY_LIMIT)] = DEFAULT_QUERY_LIMIT,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[AuditAccessReportRead]:
+    """Return only explicit client-account access evidence for future regulators.
+
+    Authentication and regulator-role authorization are deliberately deferred;
+    this endpoint is a trusted-local prototype boundary only.
+    """
+
+    try:
+        events = query_access_reports(
+            database_session,
+            account_id=_validate_filter(account_id, "accountId"),
+            actor_id=_validate_filter(actor_id, "actorId"),
+            operation=_validate_filter(operation, "operation"),
+            outcome=_validate_filter(outcome, "outcome"),
+            from_timestamp=from_timestamp,
+            to_timestamp=to_timestamp,
+            limit=limit,
+            offset=offset,
+        )
+        responses: list[AuditAccessReportRead] = []
+        for event in events:
+            paths = list(database_session.scalars(
+                select(AuditEventRedaction.json_pointer)
+                .where(AuditEventRedaction.target_event_id == event.id)
+                .order_by(AuditEventRedaction.json_pointer.asc())
+            ))
+            base = AuditEventQueryRead.model_validate(event).model_dump()
+            response = AuditAccessReportRead.model_validate({
+                **base,
+                "operation": event.payload["operation"],
+                "outcome": event.payload["outcome"],
+            })
+            if paths:
+                response = response.model_copy(update={
+                    "payload": masked_payload(event.payload, paths), "redacted_paths": paths
+                })
+            responses.append(response)
+        return responses
+    except AuditChainIntegrityError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Audit integrity check failed; report was not created") from None
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from None
+    except (SQLAlchemyError, ValidationError):
+        database_session.rollback()
+        logger.error("Access report retrieval failed")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to retrieve access report") from None
 
 
 @router.get(
