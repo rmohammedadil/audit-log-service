@@ -439,6 +439,22 @@ not represent approval or work that has not occurred.
   historical database checksum matched its baseline. No application defect was
   found; remote CI job-level evidence remains unavailable to this review.
 
+## Task 32.2 - Current high-level architecture documentation
+
+- **AI contribution:** Reorganized `docs/architecture.md` around the current
+  implementation after reviewing the actual routes, services, models,
+  authentication, deployment configuration, and CI workflow. The document now
+  includes implementation-aligned Mermaid architecture, deployment, and CI
+  diagrams.
+- **Historical preservation:** The prior incremental architecture narrative is
+  retained as a clearly labelled historical record. Requirements and this log
+  preserve task-era decisions without presenting superseded future-tense plans
+  as current behavior.
+- **Validation status:** Documentation-focused source cross-checks, Markdown
+  links, Mermaid review, diff validation, and database checksum verification
+  are recorded after this review. No application code or tests are changed or
+  executed for this documentation-only task.
+
 ## Task 27 - Transactional write idempotency
 
 - **AI contribution:** Added writer-scoped fingerprints, atomic replay mapping,

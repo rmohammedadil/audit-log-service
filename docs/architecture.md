@@ -1,5 +1,295 @@
 
-# Architecture Overview
+# Current High-Level Architecture
+
+## 1. Introduction
+
+Audit Log Service is a Python/FastAPI functional prototype for recording,
+querying, and verifying tamper-evident audit evidence. It serves trusted event
+producers, auditors, regulators reviewing recorded account access, and
+engineers operating or evaluating the service.
+
+Implemented scope:
+
+- **Scenario A:** audit-event creation, querying, hash-chain verification,
+  idempotency, and tamper detection.
+- **Scenario B:** logical archival, non-destructive payload redaction, signed
+  exports, and independent bundle verification.
+- **Scenario C:** reporting over explicitly recorded client-account access.
+
+This is a functional prototype, not a claim of tamper-proof storage,
+production readiness, regulatory certification, or independently verified
+remote CI evidence.
+
+## 2. Architectural goals
+
+- Deterministic SHA-256 content and linked-chain hashes.
+- Application-level append-only behavior with no public event update/delete
+  route.
+- Deterministic persisted-evidence verification before integrity-sensitive
+  reads and lifecycle writes.
+- Evidence-preserving retention and redaction.
+- Database-independent export verification with optional Ed25519 signatures.
+- Explicit, filterable regulatory access reporting.
+- Operational simplicity through a modular monolith, SQLite, JWT/RBAC, Docker,
+  and CI validation.
+
+## 3. Technology stack
+
+| Technology | Current use |
+| --- | --- |
+| Python 3.12 | Runtime and command-line utilities. |
+| FastAPI and Uvicorn | REST API, OpenAPI/Swagger, request lifecycle, and server execution. |
+| SQLAlchemy and SQLite | ORM, sessions/transactions, persistence, and isolated tests. |
+| Pydantic v2 | Request validation, response serialization, and OpenAPI schemas. |
+| SHA-256 | Event hashes, chain hashes, idempotency fingerprints, and bundle digests. |
+| PyJWT | HS256 JWT validation and local development-token generation. |
+| `cryptography` / Ed25519 | Optional export signing, trusted-key verification, and PEM key generation. |
+| pytest and httpx | Unit, service, API, tampering, and integration-style tests. |
+| Docker / Compose | Reproducible single-container execution with persistent SQLite storage. |
+| GitHub Actions | Regression, dependency-vulnerability, and container smoke-test workflow. |
+
+These are observed implementation choices; this document does not infer
+unrecorded historical motivations.
+
+## 4. High-level architecture
+
+Clients use the FastAPI REST boundary. Routes validate public contracts,
+authorize roles, and own HTTP transaction outcomes. Services own audit rules,
+verification, lifecycle operations, reporting, and export construction.
+SQLAlchemy persists evidence to SQLite. The offline verifier consumes a JSON
+bundle and an independently trusted public key without accessing the database.
+
+```mermaid
+flowchart LR
+    Client[API consumer / Swagger UI] --> API[FastAPI application]
+    API --> Auth[JWT authentication and RBAC]
+    API --> Routes[Audit routes and schemas]
+    Routes --> Services[Audit, retention, redaction, export services]
+    Services --> Persistence[SQLAlchemy sessions and transaction helpers]
+    Persistence --> SQLite[(SQLite audit database)]
+    Export[Export bundle] --> Offline[Offline verifier]
+    TrustedKey[Trusted Ed25519 public key] --> Offline
+```
+
+## 5. Component architecture
+
+| Component | Source files | Responsibility |
+| --- | --- | --- |
+| Application/operations | `app/main.py` | Lifespan initialization, schema preflight, health/readiness, request IDs, and safe logs. |
+| API boundary | `app/api/audit_routes.py`, `app/schemas.py` | Routes, camelCase contracts, status mapping, dependency injection, commit/rollback ownership. |
+| Authentication | `app/auth.py`, `app/generate_token.py` | HS256 JWT config/validation, role dependencies, development tokens. |
+| Persistence | `app/database.py`, `app/models.py` | SQLite engine/session lifecycle, UTC timestamps, foreign keys, V3 preflight, models. |
+| Core audit | `app/services/audit_service.py` | Hashing, append, checkpoints, verification, querying, lifecycle verification, masking, idempotency helpers. |
+| Lifecycle | `app/services/retention_service.py`, `app/services/redaction_service.py` | Archive and redaction actions plus metadata. |
+| Export | `app/services/export_service.py`, `app/export_signing.py`, `app/generate_export_keys.py` | Bundles, digests, optional signing, local key creation. |
+| Offline verifier | `app/verify_export.py` | Bundle/digest/witness/checkpoint/signature verification without SQLite. |
+| Automation | `tests/`, `.github/workflows/ci.yml`, `scripts/docker_smoke_test.sh` | Automated behavior/tampering coverage and CI validation. |
+
+```mermaid
+flowchart TB
+    Routes[Routes and schemas] --> Core[Audit service]
+    Routes --> Retention[Retention service]
+    Routes --> Redaction[Redaction service]
+    Routes --> ExportService[Export service]
+    Core --> Models[Audit models and checkpoint]
+    Retention --> Models
+    Redaction --> Models
+    ExportService --> Models
+    Models --> Database[Database/session layer]
+    Routes --> Auth[JWT/RBAC dependency]
+    ExportService --> Signer[Optional Ed25519 signer]
+```
+
+Routes do not duplicate hashing or lifecycle rules. Services flush where
+needed; the route decides whether the request transaction commits or rolls
+back.
+
+## 6. Major application flows
+
+### Audit event creation and idempotency
+
+`POST /audit/events` requires `writer`. It validates client-owned fields,
+acquires SQLite write coordination, checks an optional writer-scoped
+`Idempotency-Key`, delegates to `append_audit_event()`, persists a mapping when
+needed, and commits. First creation is HTTP 201; matching replay is HTTP 200;
+same key with changed content is HTTP 409.
+
+### Retrieval and verification
+
+`GET /audit/events` requires `auditor` or `admin`. It verifies persisted chain
+and lifecycle metadata, applies filters/pagination, then applies redaction
+overlays. `GET /audit/verify` requires `auditor`, `regulator`, or `admin`; an
+inconsistent chain is a completed HTTP 200 verification result, while
+operational failures are sanitized HTTP 500 responses.
+
+### Retention and redaction
+
+`POST /audit/retention/run` requires `admin`; it verifies source integrity,
+adds one `AUDIT_RETENTION_APPLIED` lifecycle event and archive metadata without
+deleting target events. `POST /audit/events/{eventId}/redact` requires `admin`;
+it validates RFC 6901 paths and a reason code, adds an
+`AUDIT_REDACTION_APPLIED` lifecycle event and metadata, then masks copied
+payload values in later reads. Original payloads and hashes remain unchanged.
+
+### Export and offline verification
+
+`POST /audit/exports` requires `auditor` or `admin`. It verifies source
+integrity, selects one actor/resource subset, applies overlays, and returns a
+canonical-digest bundle with full payload-free chain witness and checkpoint.
+If `AUDIT_EXPORT_PRIVATE_KEY_PATH` is set, signing must succeed or export fails
+closed. `python -m app.verify_export` verifies without an application database;
+`--public-key` validates Ed25519 signatures against an independently trusted
+key.
+
+### Regulatory access reporting
+
+`GET /audit/access-reports` requires `regulator`. It reports only canonical
+`CLIENT_ACCOUNT_ACCESS` events for `customer_account`, with required UTC bounds
+and optional account/actor/operation/outcome filters. Archived records are
+included by default; source-integrity failure returns no report.
+
+## 7. Data architecture
+
+| Table | Purpose |
+| --- | --- |
+| `audit_events` | Event content, UTC timestamp, predecessor content hash, linked-chain fields, and chain hash. |
+| `audit_chain_state` | Singleton count/head checkpoint for the linked chain. |
+| `audit_event_archives` | One logical-archive record per target event and lifecycle action. |
+| `audit_event_redactions` | One target-event/JSON-Pointer overlay with reason and lifecycle action. |
+| `audit_event_idempotency` | Writer-scoped key, request fingerprint, and event reference; no request payload. |
+
+`UtcDateTime` normalizes aware timestamps to UTC and restores `timezone.utc`
+after SQLite retrieval. SQLite foreign keys are enabled on project-created
+connections. Startup preflight checks audit table names and column-name sets
+before `create_all`; it does not establish full schema compatibility.
+
+Event/checkpoint, lifecycle action/metadata, and idempotency mapping changes
+share caller-owned transactions. Complete fields and ER detail are reserved for
+the low-level system-design document.
+
+## 8. Security architecture
+
+JWT validation requires HS256 signature, expiration, subject, issuer, audience,
+and allowed roles. Startup rejects missing/short signing keys and missing
+issuer/audience. The local token CLI is not an HTTP issuance endpoint.
+
+| Role | Authorized operations |
+| --- | --- |
+| `writer` | Create audit events. |
+| `auditor` | Query events, verify chains, export evidence. |
+| `regulator` | Report access, verify chains. |
+| `admin` | Query, verify, export, retention, and redaction. |
+
+JWT subject identifies the caller; `actorId` is a business actor asserted by a
+trusted writer. Integrity-sensitive retrieval, reporting, lifecycle writes,
+export, and replay fail closed. Errors/logs exclude payloads, tokens, account
+identifiers, SQL, and exception details. Middleware returns `X-Request-ID`.
+
+Private export keys are referenced by `AUDIT_EXPORT_PRIVATE_KEY_PATH`; ignore
+and Docker-build rules exclude key files. A Compose override mounts one private
+key read-only. Application-level append-only behavior is not physical database
+immutability.
+
+## 9. Deployment architecture
+
+The service runs natively with Python/Uvicorn or through Docker Compose. The
+container uses Python 3.12 slim, one Uvicorn worker, and non-root `audit` user.
+Compose stores `/var/lib/audit/audit_log_v3.db` on named `audit-data`; required
+runtime settings are JWT key, issuer, and audience. The optional signing
+override mounts a private key read-only.
+
+```mermaid
+flowchart TB
+    Operator[Developer or operator] --> Compose[Docker Compose]
+    Compose --> Container[Non-root audit-log-service container]
+    Container --> API[Uvicorn / FastAPI :8000]
+    Container --> Volume[(audit-data volume / SQLite V3)]
+    Key[Optional private PEM] -. read-only mount .-> Container
+    Probe[Compose health check] --> API
+```
+
+This is a single-instance SQLite deployment, not clustered storage or
+distributed writer coordination.
+
+## 10. CI architecture
+
+The read-only GitHub Actions workflow runs on `main` pushes, pull requests to
+`main`, and manual dispatch. Bounded Ubuntu jobs perform:
+
+- Python regression: disposable JWT/database setup, pinned dependencies,
+  compilation, `pip check`, and pytest.
+- Dependency security: pinned `pip-audit`, failing on vulnerabilities or
+  dependency-collection failure.
+- Container smoke: build/startup, health/readiness, Swagger/OpenAPI, auth,
+  creation, verification, persistence recreation, non-root execution, image
+  exclusions, and cleanup.
+
+```mermaid
+flowchart LR
+    Trigger[Push / pull request / manual dispatch] --> Regression[Python regression]
+    Trigger --> Audit[Strict pip-audit]
+    Trigger --> Smoke[Docker smoke test]
+    Regression --> Gate[CI result]
+    Audit --> Gate
+    Smoke --> Gate
+```
+
+CI does not deploy or publish images. The developer reported a successful
+post-remediation run; its run ID and job logs were not independently retrievable
+during final acceptance review.
+
+## 11. Architecture decisions and trade-offs
+
+| Current design | Trade-off |
+| --- | --- |
+| Modular monolith | Understandable/testable prototype; not independently deployable services. |
+| SQLite | Self-contained persistence and tampering tests; limited throughput/availability. |
+| Content + linked-chain hashes | Transitive ordering commitment; no external anchoring. |
+| Singleton checkpoint | Detects trailing deletion; shares database trust boundary. |
+| Logical archival | Retains evidence; does not reclaim storage. |
+| Overlay redaction | Masks retrieval; does not erase originals. |
+| Optional signed exports | Supports trusted-recipient verification; depends on public-key distribution. |
+| Synchronous verification | Simple/deterministic; full-chain cost grows with history. |
+| HS256 JWT/RBAC | Focused access control; no rotation, revocation, asymmetric verification, or IdP. |
+| Docker/CI | Reproducible packaging/gates; not production deployment automation. |
+
+## 12. Known limitations and trust boundaries
+
+- Events, checkpoint, lifecycle metadata, and idempotency mappings share one
+  database; a privileged coordinated rewrite can evade detection.
+- No external integrity anchor, write-once storage, migration framework, or
+  independent checkpoint service exists.
+- SQLite local write coordination is not distributed concurrency control, and
+  verification has no multi-writer consistent snapshot.
+- Full-chain verification/lifecycle/export handling uses memory and has no
+  production load-test evidence.
+- Redaction masks responses; original values remain in storage and backups.
+- JWT rotation, revocation, asymmetric verification, IdP integration, and
+  centralized secret management are unimplemented.
+- Public-key distribution remains an external trust concern.
+- Preflight checks table/column names, not full type/constraint/index
+  compatibility.
+- No production monitoring backend, rate limiting, regulatory certification, or
+  production deployment evidence exists.
+
+## 13. Documentation navigation
+
+- [Repository overview and setup](../README.md)
+- [Requirements analysis and decision history](requirements.md)
+- [Testing and acceptance traceability](testing.md)
+- [AI-assisted development history](ai-usage-log.md)
+
+---
+
+# Historical Architecture Record
+
+The sections below are retained from the incremental development record. They
+may describe plans that were later implemented; the current-state sections
+above take precedence for present behavior. Requirements and review history are
+also preserved in `requirements.md` and `ai-usage-log.md`.
+
+<details>
+<summary>Historical incremental architecture notes</summary>
 
 ## Scenario A Completion Status
 
@@ -410,3 +700,5 @@ confirm commit alignment but could not retrieve the successful GitHub Actions
 run ID or per-job logs because its GitHub credential was invalid and public API
 access was unavailable. Those results are recorded as developer-confirmed, not
 independently verified remote evidence.
+
+</details>
