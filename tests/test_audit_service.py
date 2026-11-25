@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.database import Base
 from app.models import AuditEvent
+from app.services import audit_service
 from app.services.audit_service import (
+    ChainVerificationResult,
     GENESIS_HASH,
     append_audit_event,
     calculate_content_hash,
@@ -111,7 +113,7 @@ def test_append_flushes_without_committing(session: Session) -> None:
 
 
 @pytest.fixture()
-def seeded_events(session: Session) -> list[AuditEvent]:
+def seeded_events(session: Session, monkeypatch: pytest.MonkeyPatch) -> list[AuditEvent]:
     """Persist varied records so query tests exercise independent filters."""
 
     timestamps = [
@@ -176,6 +178,13 @@ def seeded_events(session: Session) -> list[AuditEvent]:
     ]
     session.add_all(events)
     session.commit()
+    # These filter fixtures intentionally use synthetic hashes; integrity
+    # enforcement is exercised in dedicated chain/retrieval tests.
+    monkeypatch.setattr(
+        audit_service,
+        "verify_audit_chain",
+        lambda _session: ChainVerificationResult(True, 4, None, None, "test fixture"),
+    )
     return events
 
 

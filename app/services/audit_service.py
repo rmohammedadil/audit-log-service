@@ -1145,9 +1145,13 @@ def query_audit_events(
         if normalized_from > normalized_to:
             raise ValueError("from_timestamp must not be after to_timestamp")
 
-    lifecycle_result = verify_lifecycle_metadata(session)
-    if not lifecycle_result.is_intact:
-        raise AuditChainIntegrityError("lifecycle metadata cannot be trusted for retrieval")
+    # A narrowed lifecycle-only check can be bypassed by changing a lifecycle
+    # action into an ordinary event and deleting its metadata.  Retrieval must
+    # fail closed on any persisted-evidence inconsistency so a lost overlay
+    # never exposes the original sensitive payload.
+    verification = verify_audit_chain(session)
+    if not verification.is_intact:
+        raise AuditChainIntegrityError("audit integrity cannot be trusted for retrieval")
 
     statement = select(AuditEvent)
     if actor_id is not None:

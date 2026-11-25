@@ -417,6 +417,12 @@ Direct SQL modification or deletion can be used there to observe the verifier.
 Remove the worktree only after confirming its exact path and that no evidence
 needs to be retained.
 
+## Retrieval integrity boundary
+
+`GET /audit/events` verifies the full persisted chain before returning any
+payload. An inconsistency returns HTTP 409 instead of potentially exposing an
+unmasked value; use `GET /audit/verify` for diagnosis.
+
 ## Current limitations
 
 - The checkpoint is stored in the same database; it is not an external trust

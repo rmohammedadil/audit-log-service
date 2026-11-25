@@ -389,6 +389,16 @@ not represent approval or work that has not occurred.
   regression passed: 319 tests, both with one existing TestClient warning.
   `compileall` and `pip check` passed. No vulnerability scanner is installed.
 
+## Task 25 - Lifecycle integrity exposure prevention
+
+- **Finding:** Isolated direct-SQL testing reproduced a narrowed lifecycle
+  validation bypass that could expose a redacted original payload.
+- **Correction:** Retrieval now fails closed after full verification; `/verify`
+  remains available for diagnosis. Focused/full results follow validation.
+
+- **Validation:** Focused retrieval/redaction tests passed: 117 tests. Full
+  regression passed: 321 tests with one existing TestClient warning.
+
 ## Task 22 - JWT authentication and RBAC
 
 - **AI contribution:** Added environment configuration, JWT claim validation,

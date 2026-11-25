@@ -283,6 +283,46 @@ def test_query_fails_closed_when_redaction_metadata_is_tampered(
     assert client.get("/audit/events").status_code == 409
 
 
+def test_query_fails_closed_when_redaction_action_is_disguised_and_metadata_removed(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    """Reproduces the pre-fix exposure path using only the isolated test DB."""
+
+    client, session_factory = api_client
+    created = client.post("/audit/events", json={**VALID_EVENT, "payload": {"secret": "value"}})
+    redacted = client.post(
+        f"/audit/events/{created.json()['id']}/redact",
+        json={"paths": ["/secret"], "reason": "SENSITIVE_DATA"},
+    )
+    action_id = redacted.json()["actionEventId"]
+    with session_factory() as database_session:
+        database_session.execute(text("DELETE FROM audit_event_redactions"))
+        database_session.execute(
+            text("UPDATE audit_events SET event_type = 'ORDINARY_EVENT' WHERE id = :id"),
+            {"id": action_id},
+        )
+        database_session.commit()
+    # Before this fix, lifecycle-only validation returned the original secret.
+    assert client.get("/audit/events").status_code == 409
+    verification = client.get("/audit/verify")
+    assert verification.status_code == 200
+    assert verification.json()["isIntact"] is False
+
+
+def test_query_fails_closed_when_redaction_lifecycle_event_is_deleted(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    created = client.post("/audit/events", json={**VALID_EVENT, "payload": {"secret": "value"}})
+    redacted = client.post(f"/audit/events/{created.json()['id']}/redact", json={"paths": ["/secret"], "reason": "SENSITIVE_DATA"})
+    with session_factory() as database_session:
+        database_session.execute(text("DELETE FROM audit_event_redactions"))
+        database_session.execute(text("PRAGMA foreign_keys=OFF"))
+        database_session.execute(text("DELETE FROM audit_events WHERE id = :id"), {"id": redacted.json()["actionEventId"]})
+        database_session.commit()
+    assert client.get("/audit/events").status_code == 409
+
+
 def test_post_event_returns_created_event_and_persists_it(
     api_client: tuple[TestClient, sessionmaker[Session]],
 ) -> None:
@@ -846,12 +886,7 @@ def test_get_events_preserves_directly_modified_string_evidence(
 
     get_response = client.get("/audit/events")
 
-    assert get_response.status_code == 200
-    returned_event = get_response.json()[0]
-    assert returned_event[public_name] == tampered_value
-    assert "event_type" not in returned_event
-    assert returned_event["contentHash"] == created_event["contentHash"]
-    assert returned_event["previousHash"] == created_event["previousHash"]
+    assert get_response.status_code == 409
     assert persisted_chain_evidence(session_factory) == evidence_before_get
 
     verify_response = client.get("/audit/verify")

@@ -346,3 +346,9 @@ Middleware returns an opaque request ID and logs only method, route, status,
 and duration. `/ready` runs `SELECT 1` and returns sanitized 503. SQLite write
 routes use `BEGIN IMMEDIATE`, which coordinates local writers but is not
 distributed concurrency control or a retry strategy.
+
+## Task 25 fail-closed projection boundary
+
+Query retrieval uses full persisted-chain verification instead of a narrowed
+lifecycle-only check. On any chain, checkpoint, archive, or redaction failure,
+it returns no events, preventing potentially unmasked sensitive-data exposure.

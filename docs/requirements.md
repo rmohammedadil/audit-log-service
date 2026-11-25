@@ -551,3 +551,10 @@ payloads, or account identifiers. `/health` is liveness; `/ready` checks the
 database and returns sanitized 503. SQLite writes use `BEGIN IMMEDIATE` with no
 automatic non-idempotent retry. No V3 index migration is introduced; whole-chain
 memory and SQLite scalability remain limitations.
+
+## 25. Fail-closed lifecycle retrieval
+
+Retrieval now performs full chain verification before returning event payloads.
+This prevents disguised redaction action plus metadata-removal tampering from
+exposing original values. Any evidence inconsistency returns HTTP 409; the
+verification endpoint remains available for diagnosis.
