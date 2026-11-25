@@ -515,6 +515,10 @@ avoid logging tokens or account data, and return 401/403 without leaking
 evidence. Current endpoints have no authentication and must not be represented
 as regulator-ready.
 
+This records the original Task 20 design state. Task 22 subsequently added JWT
+validation and endpoint RBAC; current reporting requires the regulator role as
+documented in the security requirements below.
+
 ## 22. Scenario C access reporting implementation
 
 `GET /audit/access-reports` implements the approved prototype report. `from`
@@ -592,3 +596,19 @@ Compose supplies JWT configuration at runtime and persists SQLite in a named
 volume. `/ready` is the container health check. Docker runtime validation is
 environment-dependent; SQLite deployment supports one replica only and has no
 distributed writer coordination.
+
+## 30. Continuous integration and container validation
+
+GitHub Actions runs with read-only repository permissions on pushes to `main`,
+pull requests targeting `main`, and manual dispatch. It installs the pinned
+requirements on Python 3.12, compiles the application, runs `pip check`, and
+runs the complete regression suite with disposable test storage. A separately
+pinned `pip-audit` installation scans declared requirements; a vulnerability or
+scanner collection failure fails the job rather than being suppressed.
+
+The Docker job builds the image, validates Compose configuration quietly, and
+uses runtime-generated test-only JWT values. It verifies liveness/readiness,
+Swagger/OpenAPI, protected-route rejection, authenticated event creation,
+chain verification, data persistence across container recreation, non-root
+execution, image exclusions, and cleanup. No image is published and no
+production secret is supplied. Remote GitHub Actions execution remains pending.

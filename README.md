@@ -322,17 +322,24 @@ access or outcomes from ordinary audit events.
 
 The endpoint verifies the full source chain first and returns 409 for integrity
 failure. It reports recorded application evidence only; it does not establish
-regulatory compliance or completeness of external access logging. JWT and
-regulator-role authorization are deferred.
-
-## Run tests
+regulatory compliance or completeness of external access logging. JWT and the
+regulator role now protect the reporting endpoint; broader identity-provider
+integration remains a prototype limitation.
 
 ## Docker deployment
 
-Docker Desktop/Compose are prerequisites. Copy `.env.example` to `.env`, set
-unique JWT values, then run `docker compose up --build`. The persistent
-`audit-data` volume stores SQLite state; use `docker compose down` for shutdown
-without deleting it. Use `docker compose down -v` only for disposable data.
+Docker Desktop and Compose are prerequisites. Copy `.env.example` to `.env`,
+replace every JWT placeholder with a unique local value, then start the service:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+The persistent `audit-data` volume stores SQLite state; use `docker compose
+down` for shutdown without deleting it. Use `docker compose down -v` only for
+disposable data. Check configuration without exposing values using `docker
+compose config --quiet`.
 
 Endpoints: root, `/health`, `/ready`, and `/docs` are available on port 8000.
 Generate a local writer token inside a configured container with
@@ -340,6 +347,20 @@ Generate a local writer token inside a configured container with
 For optional export signing, use `docker compose -f compose.yaml -f
 compose.signing.yaml up` with a host key path; private keys are never copied
 into the image.
+
+## Continuous integration
+
+GitHub Actions runs on pushes to `main`, pull requests targeting `main`, and
+manual dispatches. The workflow has read-only repository permission and runs
+Python compilation, `pip check`, the full regression suite, a pinned
+`pip-audit` dependency scan, and a disposable Docker Compose smoke test. The
+smoke test creates ephemeral JWT material at runtime and checks startup,
+readiness, Swagger/OpenAPI, authorization, authenticated creation, verification,
+persistence after recreation, non-root execution, and image exclusions.
+
+Remote workflow execution is required to validate Docker because Docker is not
+available in this local development environment. CI does not publish images or
+use production credentials.
 
 ## Local JWT setup
 
@@ -359,6 +380,8 @@ TOKEN=$(python -m app.generate_token --subject local-admin --role admin)
 Swagger supports Bearer authentication. Roles: writer creates; auditor queries,
 verifies, and exports; regulator reports and verifies; admin queries, verifies,
 exports, retains, and redacts. JWT subject is the caller, not business actorId.
+
+## Run tests
 
 Run the full suite from the repository root:
 
@@ -456,10 +479,11 @@ unmasked value; use `GET /audit/verify` for diagnosis.
   `GET /audit/verify`.
 - Full-chain verification materializes the chain in memory, so it is not yet
   designed for very large audit histories.
-- There is no authentication or authorization, including no JWT or RBAC.
+- JWT/RBAC is a local symmetric-key prototype. Key rotation, revocation,
+  asymmetric signing, and identity-provider integration remain unimplemented.
 - SQLite, startup `create_all`, and offset pagination are prototype choices;
-  there are no migrations, Docker, CI/CD, or production deployment
-  configuration.
+  there are no migrations or multi-replica deployment support. CI validates the
+  build and disposable single-container deployment but does not publish images.
 - Redaction is a retrieval mask rather than permanent erasure. Exports are
   in-memory bundles and full-chain verification/export are not designed for
   very large histories.

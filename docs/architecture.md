@@ -383,3 +383,14 @@ The image contains only pinned runtime dependencies and application code. JWT
 secrets and optional signing keys enter at runtime; keys are mounted read-only
 only through the signing Compose override. Persistent SQLite is a single-volume,
 single-replica prototype deployment, not clustered storage.
+
+## Task 30 CI boundary
+
+The CI workflow separates Python regression, dependency vulnerability scanning,
+and Docker runtime smoke testing into bounded Ubuntu jobs. The test job uses
+only disposable database and JWT configuration. The Docker smoke script owns a
+unique Compose project and removes its containers and volume through an exit
+trap. Its generated keys and bearer tokens remain process-local and are never
+printed. CI validates a single SQLite container only; it does not establish
+multi-replica correctness, registry security, image provenance, or a production
+secrets-management solution.

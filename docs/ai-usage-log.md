@@ -378,6 +378,23 @@ not represent approval or work that has not occurred.
   permission configuration was not diagnosed or repaired.
 - **Engineer review and approval of this implementation:** Pending.
 
+## Task 30 - CI, dependency scanning, and Docker runtime validation
+
+- **AI contribution:** Added a least-privilege GitHub Actions workflow with
+  Python regression, pinned `pip-audit`, and a bounded Compose smoke script.
+  The script creates test-only JWT values at runtime and cleans its unique
+  containers and volume on exit.
+- **Validation status:** Local workflow and shell syntax checks, dependency
+  scanning where network access permits, and regression results are recorded
+  only after execution. Docker runtime validation is pending the first remote
+  GitHub Actions run because local Docker is unavailable.
+
+- **Validation performed:** Shell syntax, application compilation, `pip check`,
+  and Git diff checks passed. `pip-audit 2.10.1` reported no known
+  vulnerabilities for `requirements.txt`. The complete regression suite passed:
+  341 tests with one existing TestClient deprecation warning. Docker image and
+  Compose runtime checks remain pending remote execution.
+
 ## Task 27 - Transactional write idempotency
 
 - **AI contribution:** Added writer-scoped fingerprints, atomic replay mapping,
