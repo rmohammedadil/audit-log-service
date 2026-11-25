@@ -65,6 +65,30 @@ class AuditEventRead(BaseModel):
     chain_hash: str = Field(alias="chainHash")
 
 
+class AuditEventQueryRead(AuditEventRead):
+    """Retrieval view: hashes describe original evidence, payload may be masked."""
+
+    redacted_paths: list[str] = Field(default_factory=list, alias="redactedPaths")
+
+
+class RedactionRequest(BaseModel):
+    """Trusted-local redaction request with non-sensitive reason codes only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    paths: list[str] = Field(min_length=1, max_length=50)
+    reason: str
+
+
+class RedactionRead(BaseModel):
+    model_config = ConfigDict(validate_by_name=True)
+
+    target_event_id: int = Field(alias="targetEventId")
+    newly_redacted_path_count: int = Field(alias="newlyRedactedPathCount")
+    newly_redacted_paths: list[str] = Field(alias="newlyRedactedPaths")
+    action_event_id: int | None = Field(alias="actionEventId")
+
+
 class AuditChainVerificationRead(BaseModel):
     """Public representation of a completed chain-verification result.
 

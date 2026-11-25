@@ -256,3 +256,21 @@ Logical archival is not physical deletion, storage reclamation, or permanent
 erasure. Each run loads its eligible target set and action payload in memory;
 there is no scheduler, batch streaming, concurrent-writer coordination, or
 authentication/authorization in this prototype.
+
+## Task 17 Redaction Overlay Flow
+
+The redaction service first verifies the full chain, then validates every RFC
+6901 JSON Pointer against the original persisted object payload. It rejects
+root, malformed, missing, invalid-index, duplicate, and overlapping paths.
+Newly requested paths are sorted deterministically, recorded in one chained
+`AUDIT_REDACTION_APPLIED` event, and stored as overlay metadata using the exact
+action timestamp. Existing paths are no-ops; a new reason cannot rewrite their
+original redaction evidence.
+
+Query retrieval separately validates lifecycle metadata before applying overlays
+to deep-copied payloads. This fails closed for mutable lifecycle metadata while
+retaining Task 12's ability to inspect ordinary persisted evidence when a
+content hash fails. Returned hashes remain commitments to the original payload,
+not the masked view. Redaction is application-layer masking only; the original
+value remains in the database and backups. Future export can reuse this safe
+projection boundary.

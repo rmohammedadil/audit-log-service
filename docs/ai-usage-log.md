@@ -428,6 +428,31 @@ not represent approval or work that has not occurred.
   logical archival only, not redaction, export, access control, or production
   readiness.
 
+## Task 17 - Sensitive payload redaction and lifecycle integrity
+
+- **Engineering improvement:** Adds non-destructive JSON Pointer redaction
+  overlays while preserving original audit payloads, hashes, links, and
+  timestamps. This is masking at retrieval, not permanent deletion.
+- **Implementation decision:** Valid requests contain at most 50 distinct,
+  non-overlapping RFC 6901 paths and an allowlisted non-sensitive reason code.
+  One `AUDIT_REDACTION_APPLIED` lifecycle event records the target, ordered new
+  paths, count, reason, and action timestamp. Matching metadata uses that exact
+  timestamp; repeated existing paths are no-ops and do not rewrite a reason.
+- **AI contribution:** Added pointer parsing/projection helpers, service and
+  API boundaries, lifecycle verification, projected query responses, focused
+  isolated tests, and documentation of the hash/projection trust boundary.
+- **Validation performed:** Final focused acceptance coverage added checkpoint,
+  fail-closed retrieval, and rollback assertions. The complete regression suite
+  using a fresh external disposable pytest base directory passed: 278 tests
+  with one existing Starlette `TestClient` deprecation warning and no failures.
+- **Known limitations:** Redaction has no authentication or authorization,
+  permanent erasure, export, concurrency coordination, scheduler, migration,
+  or external trust anchor. The endpoint is for trusted local assessment use.
+- **Engineer review and conditional approval:** The engineer approved commit
+  after focused confirmation of checkpoint advancement, lifecycle fail-closed
+  retrieval, atomic rollback, Scenario A/retention compatibility, final
+  regression validation, and database preservation.
+
 ## Task 12 - Evidence-preserving response schemas
 
 - **Engineering improvement:** Supports Scenario A audit-evidence fidelity by

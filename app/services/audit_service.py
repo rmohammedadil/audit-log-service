@@ -19,7 +19,13 @@ from typing import Any
 from sqlalchemy import String, cast, exists, func, select
 from sqlalchemy.orm import Session
 
-from app.models import AuditChainState, AuditEvent, AuditEventArchive, utc_now
+from app.models import (
+    AuditChainState,
+    AuditEvent,
+    AuditEventArchive,
+    AuditEventRedaction,
+    utc_now,
+)
 
 
 GENESIS_HASH = "AUDIT_LOG_GENESIS_V1"
@@ -50,6 +56,13 @@ VIOLATION_CHECKPOINT_HEAD_ID_MISMATCH = "CHECKPOINT_HEAD_ID_MISMATCH"
 VIOLATION_CHECKPOINT_HEAD_CHAIN_HASH_MISMATCH = "CHECKPOINT_HEAD_CHAIN_HASH_MISMATCH"
 VIOLATION_ARCHIVE_MALFORMED_ACTION = "ARCHIVE_MALFORMED_ACTION"
 VIOLATION_ARCHIVE_METADATA_MISMATCH = "ARCHIVE_METADATA_MISMATCH"
+VIOLATION_REDACTION_MALFORMED_ACTION = "REDACTION_MALFORMED_ACTION"
+VIOLATION_REDACTION_METADATA_MISMATCH = "REDACTION_METADATA_MISMATCH"
+REDACTION_REASON_CODES = frozenset(
+    {"SENSITIVE_DATA", "PRIVACY_REQUEST", "POLICY_REQUIREMENT"}
+)
+REDACTION_MARKER = "[REDACTED]"
+MAX_REDACTION_PATHS = 50
 
 
 @dataclass(frozen=True)
@@ -472,6 +485,90 @@ def _decode_persisted_timestamp(raw_timestamp: object) -> datetime:
     return timestamp.astimezone(timezone.utc)
 
 
+def parse_json_pointer(pointer: str) -> tuple[str, ...]:
+    """Parse a non-root RFC 6901 pointer without accepting invalid escapes."""
+
+    if not isinstance(pointer, str) or not pointer or len(pointer) > 1024 or not pointer.startswith("/"):
+        raise ValueError("JSON Pointer must be a non-root path of at most 1024 characters")
+    parts: list[str] = []
+    for raw_part in pointer[1:].split("/"):
+        part = ""
+        index = 0
+        while index < len(raw_part):
+            if raw_part[index] == "~":
+                if index + 1 >= len(raw_part) or raw_part[index + 1] not in "01":
+                    raise ValueError("JSON Pointer contains an invalid escape")
+                part += "~" if raw_part[index + 1] == "0" else "/"
+                index += 2
+            else:
+                part += raw_part[index]
+                index += 1
+        parts.append(part)
+    return tuple(parts)
+
+
+def _pointer_parent(payload: object, pointer: str) -> tuple[dict[str, Any] | list[Any], str]:
+    """Locate a pointer parent and reject absent/object-vs-array ambiguity."""
+
+    parts = parse_json_pointer(pointer)
+    current = payload
+    for part in parts[:-1]:
+        if isinstance(current, dict):
+            if part not in current:
+                raise ValueError("JSON Pointer does not exist in payload")
+            current = current[part]
+        elif isinstance(current, list):
+            if not part.isdigit() or (len(part) > 1 and part.startswith("0")):
+                raise ValueError("JSON Pointer array index is invalid")
+            index = int(part)
+            if index >= len(current):
+                raise ValueError("JSON Pointer array index is out of range")
+            current = current[index]
+        else:
+            raise ValueError("JSON Pointer does not exist in payload")
+    return current, parts[-1]
+
+
+def validate_json_pointer(payload: dict[str, Any], pointer: str) -> None:
+    """Validate a pointer against an original object payload without mutation."""
+
+    parent, final = _pointer_parent(payload, pointer)
+    if isinstance(parent, dict):
+        if final not in parent:
+            raise ValueError("JSON Pointer does not exist in payload")
+    elif isinstance(parent, list):
+        if final == "-" or not final.isdigit() or (len(final) > 1 and final.startswith("0")):
+            raise ValueError("JSON Pointer array index is invalid")
+        if int(final) >= len(parent):
+            raise ValueError("JSON Pointer array index is out of range")
+    else:
+        raise ValueError("JSON Pointer does not exist in payload")
+
+
+def pointers_overlap(pointers: list[str] | tuple[str, ...]) -> bool:
+    """Reject ancestor/descendant masking because it has ambiguous evidence."""
+
+    parsed = [parse_json_pointer(pointer) for pointer in pointers]
+    return any(
+        left != right and (left[: len(right)] == right or right[: len(left)] == left)
+        for left in parsed
+        for right in parsed
+    )
+
+
+def masked_payload(payload: dict[str, Any], pointers: list[str]) -> dict[str, Any]:
+    """Return a deep-copied payload with validated paths replaced by a marker."""
+
+    copied = json.loads(json.dumps(payload, ensure_ascii=False, allow_nan=False))
+    for pointer in pointers:
+        parent, final = _pointer_parent(copied, pointer)
+        if isinstance(parent, dict):
+            parent[final] = REDACTION_MARKER
+        else:
+            parent[int(final)] = REDACTION_MARKER
+    return copied
+
+
 def _parse_archive_action_payload(
     payload: dict[str, Any], action_timestamp: datetime
 ) -> tuple[tuple[int, ...], datetime, datetime]:
@@ -629,6 +726,91 @@ def _verify_archive_metadata(
     return None
 
 
+def _verify_redaction_metadata(
+    events: list[Any], redactions: list[Any], checked_record_count: int
+) -> ChainVerificationResult | None:
+    """Validate redaction overlays against their chained action declarations."""
+
+    events_by_id = {event["id"]: event for event in events}
+    declared: dict[tuple[int, str], int] = {}
+    for action in events:
+        if action["event_type"] != AUDIT_REDACTION_APPLIED:
+            continue
+        try:
+            payload = _decode_persisted_payload(action["payload_raw"])
+            timestamp = _decode_persisted_timestamp(action["timestamp_raw"])
+            fields = {"targetEventId", "redactedPaths", "redactedPathCount", "reason", "redactedAt"}
+            if set(payload) != fields or type(payload["targetEventId"]) is not int:
+                raise ValueError
+            target = events_by_id.get(payload["targetEventId"])
+            paths = payload["redactedPaths"]
+            if (
+                target is None
+                or target["id"] >= action["id"]
+                or target["event_type"] in RESERVED_LIFECYCLE_EVENT_TYPES
+                or not isinstance(paths, list)
+                or not paths
+                or payload["redactedPathCount"] != len(paths)
+                or payload["reason"] not in REDACTION_REASON_CODES
+                or len(set(paths)) != len(paths)
+                or paths != sorted(paths)
+                or pointers_overlap(paths)
+                or normalize_timestamp(_decode_persisted_timestamp(payload["redactedAt"])) != normalize_timestamp(timestamp)
+            ):
+                raise ValueError
+            target_payload = _decode_persisted_payload(target["payload_raw"])
+            for path in paths:
+                validate_json_pointer(target_payload, path)
+                key = (target["id"], path)
+                if key in declared:
+                    raise ValueError
+                declared[key] = action["id"]
+        except (TypeError, ValueError, JSONDecodeError, UnicodeDecodeError, OverflowError):
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=action["id"],
+                violation_type=VIOLATION_REDACTION_MALFORMED_ACTION,
+                detail="redaction lifecycle action evidence is malformed",
+            )
+    seen: set[tuple[int, str]] = set()
+    for metadata in redactions:
+        key = (metadata["target_event_id"], metadata["json_pointer"])
+        if key in seen or declared.get(key) != metadata["redaction_action_event_id"]:
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=metadata["redaction_action_event_id"],
+                violation_type=VIOLATION_REDACTION_METADATA_MISMATCH,
+                detail="redaction metadata does not match lifecycle action evidence",
+            )
+        seen.add(key)
+        action = events_by_id.get(metadata["redaction_action_event_id"])
+        try:
+            action_payload = _decode_persisted_payload(action["payload_raw"])
+            action_timestamp = _decode_persisted_timestamp(action["timestamp_raw"])
+            metadata_timestamp = _decode_persisted_timestamp(metadata["redacted_at_raw"])
+            if (
+                metadata["redaction_reason"] != action_payload["reason"]
+                or normalize_timestamp(metadata_timestamp) != normalize_timestamp(action_timestamp)
+            ):
+                raise ValueError
+        except (TypeError, ValueError, KeyError, JSONDecodeError, UnicodeDecodeError, OverflowError):
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=metadata["redaction_action_event_id"],
+                violation_type=VIOLATION_REDACTION_METADATA_MISMATCH,
+                detail="redaction metadata timestamp or reason is inconsistent",
+            )
+    for key, action_id in declared.items():
+        if key not in seen:
+            return _verification_failure(
+                checked_record_count=checked_record_count,
+                first_inconsistency_id=action_id,
+                violation_type=VIOLATION_REDACTION_METADATA_MISMATCH,
+                detail="redaction lifecycle action is missing metadata",
+            )
+    return None
+
+
 def verify_audit_chain(session: Session) -> ChainVerificationResult:
     """Verify persisted events and checkpoint state without changing either.
 
@@ -669,6 +851,13 @@ def verify_audit_chain(session: Session) -> ChainVerificationResult:
         cast(AuditEventArchive.archived_at, String).label("archived_at_raw"),
         AuditEventArchive.archive_action_event_id,
     ).order_by(AuditEventArchive.target_event_id.asc())
+    redaction_statement = select(
+        AuditEventRedaction.target_event_id,
+        AuditEventRedaction.json_pointer,
+        cast(AuditEventRedaction.redacted_at, String).label("redacted_at_raw"),
+        AuditEventRedaction.redaction_reason,
+        AuditEventRedaction.redaction_action_event_id,
+    ).order_by(AuditEventRedaction.target_event_id.asc(), AuditEventRedaction.json_pointer.asc())
     # Column mappings come from the database result, not the session's identity
     # map, and no_autoflush preserves unrelated local changes. Selecting raw
     # text keeps JSON/timestamp parsing under the per-event loop below, where a
@@ -678,6 +867,7 @@ def verify_audit_chain(session: Session) -> ChainVerificationResult:
         events = list(session.execute(event_statement).mappings())
         checkpoint = session.execute(checkpoint_statement).mappings().one_or_none()
         archives = list(session.execute(archive_statement).mappings())
+        redactions = list(session.execute(redaction_statement).mappings())
 
     if events and checkpoint is None:
         return _verification_failure(
@@ -801,6 +991,9 @@ def verify_audit_chain(session: Session) -> ChainVerificationResult:
         archive_failure = _verify_archive_metadata(events, archives, actual_count)
         if archive_failure is not None:
             return archive_failure
+        redaction_failure = _verify_redaction_metadata(events, redactions, actual_count)
+        if redaction_failure is not None:
+            return redaction_failure
         return ChainVerificationResult(
             is_intact=True,
             checked_record_count=0,
@@ -841,6 +1034,9 @@ def verify_audit_chain(session: Session) -> ChainVerificationResult:
     archive_failure = _verify_archive_metadata(events, archives, actual_count)
     if archive_failure is not None:
         return archive_failure
+    redaction_failure = _verify_redaction_metadata(events, redactions, actual_count)
+    if redaction_failure is not None:
+        return redaction_failure
     return ChainVerificationResult(
         is_intact=True,
         checked_record_count=actual_count,
@@ -856,6 +1052,45 @@ def _normalize_query_timestamp(timestamp: datetime, parameter_name: str) -> date
     if timestamp.tzinfo is None or timestamp.utcoffset() is None:
         raise ValueError(f"{parameter_name} must include timezone information")
     return timestamp.astimezone(timezone.utc)
+
+
+def verify_lifecycle_metadata(session: Session) -> ChainVerificationResult:
+    """Validate lifecycle overlays without hiding ordinary evidence tampering.
+
+    Query projection uses this narrower read-only boundary: lifecycle metadata
+    must be trustworthy before it can mask a response, while Task 12 callers
+    can still inspect persisted strings when an unrelated content hash fails.
+    """
+
+    event_statement = select(
+        AuditEvent.id,
+        AuditEvent.event_type,
+        cast(AuditEvent.payload, String).label("payload_raw"),
+        cast(AuditEvent.timestamp, String).label("timestamp_raw"),
+    ).order_by(AuditEvent.id.asc())
+    archive_statement = select(
+        AuditEventArchive.target_event_id,
+        cast(AuditEventArchive.archived_at, String).label("archived_at_raw"),
+        AuditEventArchive.archive_action_event_id,
+    )
+    redaction_statement = select(
+        AuditEventRedaction.target_event_id,
+        AuditEventRedaction.json_pointer,
+        cast(AuditEventRedaction.redacted_at, String).label("redacted_at_raw"),
+        AuditEventRedaction.redaction_reason,
+        AuditEventRedaction.redaction_action_event_id,
+    )
+    with session.no_autoflush:
+        events = list(session.execute(event_statement).mappings())
+        archives = list(session.execute(archive_statement).mappings())
+        redactions = list(session.execute(redaction_statement).mappings())
+    failure = _verify_archive_metadata(events, archives, len(events))
+    if failure is not None:
+        return failure
+    failure = _verify_redaction_metadata(events, redactions, len(events))
+    if failure is not None:
+        return failure
+    return ChainVerificationResult(True, len(events), None, None, "lifecycle metadata is intact")
 
 
 def query_audit_events(
@@ -905,6 +1140,10 @@ def query_audit_events(
     if normalized_from is not None and normalized_to is not None:
         if normalized_from > normalized_to:
             raise ValueError("from_timestamp must not be after to_timestamp")
+
+    lifecycle_result = verify_lifecycle_metadata(session)
+    if not lifecycle_result.is_intact:
+        raise AuditChainIntegrityError("lifecycle metadata cannot be trusted for retrieval")
 
     statement = select(AuditEvent)
     if actor_id is not None:

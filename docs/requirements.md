@@ -428,3 +428,27 @@ unexpected, duplicate, inconsistent, ineligible, internal, or incorrectly
 timestamped archive metadata. Existing Scenario A per-record and checkpoint
 precedence remains first; lifecycle checks occur afterward with the full chain
 record count and the related action event ID where identifiable.
+
+## 19. Non-destructive Payload Redaction
+
+Redaction stores only target ID, canonical JSON Pointer, UTC action timestamp,
+allowlisted non-sensitive reason, and lifecycle action ID. It never changes the
+original payload, timestamp, hashes, links, or checkpoint. `POST
+/audit/events/{eventId}/redact` accepts up to 50 distinct, non-overlapping RFC
+6901 paths and reason codes `SENSITIVE_DATA`, `PRIVACY_REQUEST`, or
+`POLICY_REQUIREMENT`. Repeating an existing path is a no-op even with a new
+reason; the original evidence remains authoritative.
+
+Retrieval deep-copies payloads, replaces selected values with `"[REDACTED]"`,
+and returns `redactedPaths`. It validates lifecycle overlay metadata before
+projection and fails closed for lifecycle inconsistency, but preserves Task 12
+inspection of ordinary Scenario A content tampering. The original content hash
+describes the original payload and cannot be recomputed from a projected
+response. Redaction is masking, not permanent erasure.
+
+Verification runs redaction checks after existing event, checkpoint, and
+archive checks. `REDACTION_MALFORMED_ACTION` covers malformed action evidence;
+`REDACTION_METADATA_MISMATCH` covers missing, unexpected, duplicated,
+overlapping, invalid-path, target/reference/reason/timestamp-inconsistent
+metadata. Export may reuse this projection later. No access control,
+concurrency coordination, or permanent deletion is implemented.

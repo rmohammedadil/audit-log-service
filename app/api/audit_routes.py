@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -15,6 +16,9 @@ from app.schemas import (
     AuditChainVerificationRead,
     AuditEventCreate,
     AuditEventRead,
+    AuditEventQueryRead,
+    RedactionRead,
+    RedactionRequest,
     RetentionRunRead,
     RetentionRunRequest,
 )
@@ -27,6 +31,13 @@ from app.services.audit_service import (
     verify_audit_chain,
 )
 from app.services.retention_service import RetentionRunResult, run_retention
+from app.models import AuditEventRedaction
+from app.services.redaction_service import (
+    RedactionNotFoundError,
+    RedactionResult,
+    redact_audit_event,
+)
+from app.services.audit_service import masked_payload
 
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -95,6 +106,46 @@ def create_audit_event(
 
 
 @router.post(
+    "/events/{event_id}/redact",
+    response_model=RedactionRead,
+    response_model_by_alias=True,
+)
+def redact_event(
+    event_id: int,
+    request: RedactionRequest,
+    database_session: Annotated[Session, Depends(get_db)],
+) -> RedactionRead:
+    """Create a non-destructive redaction overlay in a trusted local setting."""
+
+    try:
+        result: RedactionResult = redact_audit_event(
+            database_session, event_id=event_id, paths=request.paths, reason=request.reason
+        )
+        response = RedactionRead(
+            targetEventId=result.target_event_id,
+            newlyRedactedPathCount=len(result.newly_redacted_paths),
+            newlyRedactedPaths=list(result.newly_redacted_paths),
+            actionEventId=result.action_event_id,
+        )
+        database_session.commit()
+    except RedactionNotFoundError:
+        database_session.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Audit event not found") from None
+    except AuditChainIntegrityError:
+        database_session.rollback()
+        logger.warning("Redaction blocked by audit integrity validation")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Audit integrity check failed; redaction was not applied") from None
+    except ValueError as error:
+        database_session.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from None
+    except (SQLAlchemyError, ValidationError):
+        database_session.rollback()
+        logger.error("Redaction operation failed")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to redact audit event") from None
+    return response
+
+
+@router.post(
     "/retention/run",
     response_model=RetentionRunRead,
     response_model_by_alias=True,
@@ -141,7 +192,7 @@ def run_configured_retention(
 
 @router.get(
     "/events",
-    response_model=list[AuditEventRead],
+    response_model=list[AuditEventQueryRead],
     response_model_by_alias=True,
 )
 def list_audit_events(
@@ -173,7 +224,7 @@ def list_audit_events(
         int,
         Query(ge=0, description="Records to skip before collecting a page"),
     ] = 0,
-) -> list[AuditEventRead]:
+) -> list[AuditEventQueryRead]:
     """Retrieve events through the read-only service using public aliases.
 
     FastAPI publishes the camelCase aliases and parses primitive query values;
@@ -194,6 +245,8 @@ def list_audit_events(
             limit=limit,
             offset=offset,
         )
+    except AuditChainIntegrityError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Lifecycle metadata cannot be trusted for retrieval") from None
     except ValueError as error:
         # Validation errors from the reusable service become client errors.
         raise HTTPException(
@@ -209,7 +262,22 @@ def list_audit_events(
             detail="Unable to retrieve audit events",
         ) from None
 
-    return [AuditEventRead.model_validate(event) for event in events]
+    responses: list[AuditEventQueryRead] = []
+    for event in events:
+        paths = list(
+            database_session.scalars(
+                select(AuditEventRedaction.json_pointer)
+                .where(AuditEventRedaction.target_event_id == event.id)
+                .order_by(AuditEventRedaction.json_pointer.asc())
+            )
+        )
+        response = AuditEventQueryRead.model_validate(event)
+        if paths:
+            response = response.model_copy(
+                update={"payload": masked_payload(event.payload, paths), "redacted_paths": paths}
+            )
+        responses.append(response)
+    return responses
 
 
 @router.get(

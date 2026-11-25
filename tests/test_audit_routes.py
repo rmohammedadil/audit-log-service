@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.database import Base, get_db
 from app.api import audit_routes
 from app.main import app
-from app.models import AuditChainState, AuditEvent, AuditEventArchive
+from app.models import AuditChainState, AuditEvent, AuditEventArchive, AuditEventRedaction
 from app.services import retention_service
 from app.services.audit_service import (
     GENESIS_CHAIN_HASH,
@@ -229,6 +229,50 @@ def test_retention_api_returns_sanitized_operational_failure(
 
     assert response.status_code == 500
     assert response.json() == {"detail": "Unable to apply retention policy"}
+
+
+def test_redaction_api_projects_payload_without_changing_hash_evidence(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    created = client.post(
+        "/audit/events", json={**VALID_EVENT, "payload": {"profile": {"phone": "555", "name": "Ada"}}}
+    )
+    assert created.status_code == 201
+    event_id = created.json()["id"]
+    original_hash = created.json()["contentHash"]
+
+    redacted = client.post(
+        f"/audit/events/{event_id}/redact",
+        json={"paths": ["/profile/phone"], "reason": "SENSITIVE_DATA"},
+    )
+    assert redacted.status_code == 200
+    listed = client.get("/audit/events")
+    business = next(event for event in listed.json() if event["id"] == event_id)
+    assert business["payload"] == {"profile": {"phone": "[REDACTED]", "name": "Ada"}}
+    assert business["redactedPaths"] == ["/profile/phone"]
+    assert business["contentHash"] == original_hash
+    with session_factory() as database_session:
+        stored = database_session.get(AuditEvent, event_id)
+        assert stored is not None and stored.payload["profile"]["phone"] == "555"
+
+
+def test_query_fails_closed_when_redaction_metadata_is_tampered(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    created = client.post("/audit/events", json={**VALID_EVENT, "payload": {"secret": "value"}})
+    event_id = created.json()["id"]
+    assert client.post(
+        f"/audit/events/{event_id}/redact",
+        json={"paths": ["/secret"], "reason": "SENSITIVE_DATA"},
+    ).status_code == 200
+    with session_factory() as database_session:
+        metadata = database_session.scalar(select(AuditEventRedaction))
+        assert metadata is not None
+        database_session.delete(metadata)
+        database_session.commit()
+    assert client.get("/audit/events").status_code == 409
 
 
 def test_post_event_returns_created_event_and_persists_it(

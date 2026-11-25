@@ -236,6 +236,22 @@ data. Normal `GET /audit/events` excludes archived business events; add
 `includeArchived=true` to include them. Internal lifecycle events remain
 visible as legitimate audit evidence.
 
+### Redact a payload view
+
+`POST /audit/events/{eventId}/redact` masks JSON Pointer paths in later GET
+responses without changing the original event payload or its hashes.
+
+```json
+{"paths":["/profile/phone"],"reason":"SENSITIVE_DATA"}
+```
+
+Allowed reason codes are `SENSITIVE_DATA`, `PRIVACY_REQUEST`, and
+`POLICY_REQUIREMENT`; up to 50 non-overlapping RFC 6901 paths are accepted.
+GET responses include `redactedPaths` and replace selected values with
+`"[REDACTED]"`. Their `contentHash` still commits to the original persisted
+payload, so it cannot be recomputed from the masked response. This is an
+application-layer mask, not permanent erasure from the database or backups.
+
 ## Run tests
 
 Run the full suite from the repository root:
