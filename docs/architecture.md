@@ -295,3 +295,26 @@ record content. It cannot recompute a masked record's original content hash,
 prove the source database was authentic, or prove the selector result was
 complete; an expected digest must be retained externally to establish trust in
 the supplied bundle bytes.
+
+## Task 20 Scenario C proposed access-report architecture (planning only)
+
+No Scenario C code is implemented. The proposed report endpoint reuses the
+existing read-only query path for filtering/ordering, lifecycle validation for
+fail-closed redaction and archive handling, `AuditEventQueryRead`-style masked
+serialization, and chain verification/export evidence rather than duplicating
+hash logic. A reporting-specific access-event classification and an explicit
+mapping from account ID, operation, and outcome to existing event fields remain
+stakeholder decisions.
+
+The minimum design is a regulator-only, paginated GET report over a required
+UTC range. It must not mutate audit rows, checkpoint state, archive metadata,
+or redaction metadata. Export remains a separate self-contained evidence
+artifact; its current one-selector API may not satisfy a multi-filter report
+without an approved contract change.
+
+Security is intentionally not present today. A later security task must place
+JWT authentication and regulator-role authorization ahead of report execution,
+with secure key/configuration management, claim validation, sanitized 401/403
+responses, and no credentials or sensitive payloads in logs. Current same-
+database trust, no-concurrency, whole-chain-memory, migration, and external
+anchoring limitations remain.

@@ -378,6 +378,22 @@ not represent approval or work that has not occurred.
   permission configuration was not diagnosed or repaired.
 - **Engineer review and approval of this implementation:** Pending.
 
+## Task 20 - Scenario C requirement clarification and design
+
+- **Planning only:** Recorded ambiguity questions and a proposed normalized
+  regulator account-access reporting requirement. No application code, tests,
+  database, dependency, or Git changes beyond this planning documentation were
+  made.
+- **Proposed direction:** A future regulator-only read API would reuse existing
+  query, lifecycle validation, redaction, retention, and evidence primitives;
+  JWT authentication and RBAC are explicitly deferred to its security task.
+  Stakeholders must define access-event taxonomy, identity, outcome, reporting
+  range, regulator role, and data-minimization obligations before approval.
+- **Task 19 manual status reported by the engineer:** An isolated V3 database
+  was used. Repeated redaction and standalone expected-digest verification
+  passed. Remaining Swagger/manual acceptance checks are deferred to final
+  application acceptance; no claim is made that they were completed.
+
 ## Task 16 - Configurable retention and logical archival
 
 - **Engineering improvement:** Implements the approved Scenario B retention

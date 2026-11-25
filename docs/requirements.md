@@ -477,3 +477,40 @@ independently recomputable. `--expected-digest` compares against a separately
 retained digest. Neither internal consistency nor a matching digest proves
 source authenticity, selection completeness, or protection from a privileged
 coordinated rewrite of the source database.
+
+## 21. Scenario C proposed regulator account-access reporting (planning only)
+
+The supplied requirement is: “Regulators need to be able to audit access to
+client account data.” It does not define an access event, actor identity,
+outcome vocabulary, report period, regulator role, data minimization rule,
+retention period, or source-of-truth systems. Stakeholder confirmation is
+required before implementation.
+
+**Proposed normalized requirement:** Authorized regulator users shall be able
+to retrieve a read-only, UTC-ordered, filterable report of recorded client
+account access events, containing account identifier, actor, timestamp,
+operation, outcome, and tamper-evidence references. The report shall preserve
+existing redaction and archival rules and fail closed when lifecycle evidence
+cannot be trusted.
+
+**Proposed minimum API:** `GET /audit/access-reports` with required bounded
+time range and optional `accountId`, `actorId`, `operation`, and `outcome`
+filters; deterministic ID ordering and bounded pagination; a response with
+masked event payload, account ID, actor ID, timestamp, operation/outcome, and
+content/chain-hash references. A matching export may reuse `POST
+/audit/exports` only after its single-selector limitation is reconciled with
+the report contract.
+
+**Acceptance criteria proposed:** authorized requests return only matching
+access events in deterministic order; invalid ranges/filters return 422;
+empty results return 200 with an empty page; archived/redacted evidence follows
+current rules; integrity failures return 409; verification/export evidence
+remains unchanged; and isolated integration tests cover authorization,
+filtering, pagination, redaction, archival, and tampering.
+
+JWT validation and RBAC are deliberately deferred to a subsequent security
+task. That task must authenticate the caller, authorize a regulator reporting
+role under least privilege, validate token issuer/audience/expiry/signature,
+avoid logging tokens or account data, and return 401/403 without leaking
+evidence. Current endpoints have no authentication and must not be represented
+as regulator-ready.
