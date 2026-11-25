@@ -376,3 +376,10 @@ Route metadata documents actual role requirements and sanitized response shapes.
 Offset bounds are enforced before SQLite receives a binding, preventing oversized
 pagination values from becoming database errors. Request IDs are server-created;
 clients cannot supply or control them.
+
+## Task 29 container boundary
+
+The image contains only pinned runtime dependencies and application code. JWT
+secrets and optional signing keys enter at runtime; keys are mounted read-only
+only through the signing Compose override. Persistent SQLite is a single-volume,
+single-replica prototype deployment, not clustered storage.

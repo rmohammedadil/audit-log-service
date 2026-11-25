@@ -1,0 +1,23 @@
+# Explicitly omit local state, secrets, and non-runtime project content.
+.git
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+.pytest_cache
+htmlcov
+.coverage
+tests
+docs
+.env
+.env.*
+*.db
+*.sqlite*
+*.pem
+*.key
+.vscode
+.idea
+README.md
+Dockerfile
+compose*.yaml

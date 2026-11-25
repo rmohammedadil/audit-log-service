@@ -584,3 +584,11 @@ Event and access-report offsets are integer values from 0 through 1,000,000;
 limits remain 1 through 1,000. OpenAPI documents JWT roles, sanitized errors,
 UTC boundaries, idempotency replay/conflict responses, and integrity failures.
 Every response includes a server-generated request correlation ID.
+
+## 29. Secure container deployment
+
+The container runs Python 3.12 slim as a non-root user with one Uvicorn worker.
+Compose supplies JWT configuration at runtime and persists SQLite in a named
+volume. `/ready` is the container health check. Docker runtime validation is
+environment-dependent; SQLite deployment supports one replica only and has no
+distributed writer coordination.

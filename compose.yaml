@@ -1,0 +1,21 @@
+services:
+  audit-log-service:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      AUDIT_DB_PATH: /var/lib/audit/audit_log_v3.db
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-90}
+      AUDIT_JWT_SIGNING_KEY: ${AUDIT_JWT_SIGNING_KEY:?set a 32+ character secret in .env}
+      AUDIT_JWT_ISSUER: ${AUDIT_JWT_ISSUER:?set JWT issuer in .env}
+      AUDIT_JWT_AUDIENCE: ${AUDIT_JWT_AUDIENCE:?set JWT audience in .env}
+    volumes:
+      - audit-data:/var/lib/audit
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+volumes:
+  audit-data:

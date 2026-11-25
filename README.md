@@ -327,6 +327,20 @@ regulator-role authorization are deferred.
 
 ## Run tests
 
+## Docker deployment
+
+Docker Desktop/Compose are prerequisites. Copy `.env.example` to `.env`, set
+unique JWT values, then run `docker compose up --build`. The persistent
+`audit-data` volume stores SQLite state; use `docker compose down` for shutdown
+without deleting it. Use `docker compose down -v` only for disposable data.
+
+Endpoints: root, `/health`, `/ready`, and `/docs` are available on port 8000.
+Generate a local writer token inside a configured container with
+`docker compose exec audit-log-service python -m app.generate_token --subject writer --role writer`.
+For optional export signing, use `docker compose -f compose.yaml -f
+compose.signing.yaml up` with a host key path; private keys are never copied
+into the image.
+
 ## Local JWT setup
 
 ## Operational endpoints

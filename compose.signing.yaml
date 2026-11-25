@@ -1,0 +1,7 @@
+# Optional override; set AUDIT_EXPORT_PRIVATE_KEY_HOST_PATH to an absolute key path.
+services:
+  audit-log-service:
+    environment:
+      AUDIT_EXPORT_PRIVATE_KEY_PATH: /run/keys/export-private.pem
+    volumes:
+      - ${AUDIT_EXPORT_PRIVATE_KEY_HOST_PATH:?set host private-key path}:/run/keys/export-private.pem:ro

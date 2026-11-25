@@ -393,6 +393,19 @@ not represent approval or work that has not occurred.
   tests. After the OpenAPI 422-schema correction, Codex reran the full suite:
   341 passed with one existing deprecation warning.
 
+## Task 29 - Secure Docker containerization
+
+- **AI contribution:** Added non-root Python 3.12 image, Compose storage and
+  health check, signing override, secure build exclusions, and runtime config
+  template. Docker CLI was unavailable locally, so image/runtime checks remain
+  unverified pending a Docker-enabled environment.
+
+- **Validation:** Codex ran the full regression suite after documentation
+  review: 341 passed with one existing TestClient deprecation warning. Static
+  `compileall`, `pip check`, and Git diff validation passed. Docker build,
+  Compose parsing, and container runtime validation could not run because the
+  local Docker CLI was unavailable.
+
 - **Review correction:** Added genuine concurrent API coverage and narrowed
   idempotency validation error mapping so unrelated internal ValueError cases
   retain sanitized HTTP 500 behavior.
