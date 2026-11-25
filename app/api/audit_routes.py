@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import begin_write_transaction, get_db
 from app.schemas import (
     AuditChainVerificationRead,
     AuditEventCreate,
@@ -81,6 +81,7 @@ def create_audit_event(
     """
 
     try:
+        begin_write_transaction(database_session)
         event = append_audit_event(
             database_session,
             event_type=event_input.event_type,
@@ -125,6 +126,7 @@ def redact_event(
     """Create a non-destructive redaction overlay in a trusted local setting."""
 
     try:
+        begin_write_transaction(database_session)
         result: RedactionResult = redact_audit_event(
             database_session, event_id=event_id, paths=request.paths, reason=request.reason
         )
@@ -171,6 +173,7 @@ def run_configured_retention(
 
     del retention_request
     try:
+        begin_write_transaction(database_session)
         result: RetentionRunResult = run_retention(database_session)
         response = RetentionRunRead(
             retentionDays=result.retention_days,

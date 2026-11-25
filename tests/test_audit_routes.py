@@ -1034,3 +1034,24 @@ def test_rbac_enforces_role_matrix_and_rejects_unauthorized_writes(
     rejected = client.post("/audit/events", json={**VALID_EVENT, "resourceId": "forbidden"}, headers=auditor)
     assert rejected.status_code == 403
     assert event_count(session_factory) == 1
+
+
+def test_health_response_includes_safe_request_id(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = api_client
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert len(response.headers["X-Request-ID"]) == 32
+
+
+def test_request_log_excludes_query_and_credentials(
+    api_client: tuple[TestClient, sessionmaker[Session]], caplog: pytest.LogCaptureFixture
+) -> None:
+    client, _ = api_client
+    caplog.set_level(logging.INFO, logger="app.operations")
+    response = client.get("/health?accountId=secret-account", headers={"Authorization": "Bearer secret-token"})
+    assert response.status_code == 200
+    log = caplog.text
+    assert "secret-account" not in log
+    assert "secret-token" not in log

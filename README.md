@@ -329,6 +329,12 @@ regulator-role authorization are deferred.
 
 ## Local JWT setup
 
+## Operational endpoints
+
+`/health` is liveness. `/ready` checks database connectivity and returns 503
+without details when unavailable. Responses include `X-Request-ID`; telemetry
+does not log tokens, payloads, account identifiers, or exception text.
+
 ```bash
 export AUDIT_JWT_SIGNING_KEY="replace-with-random-local-key-at-least-32-characters"
 export AUDIT_JWT_ISSUER="audit-local"

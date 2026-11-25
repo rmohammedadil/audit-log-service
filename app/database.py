@@ -129,7 +129,9 @@ def preflight_database_schema(database_engine: Engine) -> None:
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    # SQLite waits briefly for a competing writer instead of immediately
+    # failing; routes still never retry non-idempotent writes automatically.
+    connect_args={"check_same_thread": False, "timeout": 5},
 )
 
 SessionLocal = sessionmaker(
@@ -154,3 +156,15 @@ def get_db() -> Generator[Session, None, None]:
         yield database_session
     finally:
         database_session.close()
+
+
+def begin_write_transaction(database_session: Session) -> None:
+    """Acquire SQLite's reserved write lock before an append/lifecycle write.
+
+    ``BEGIN IMMEDIATE`` coordinates competing local SQLite writers through the
+    database lock. It is not distributed concurrency control and callers keep
+    commit/rollback ownership.
+    """
+
+    if database_session.bind is not None and database_session.bind.dialect.name == "sqlite":
+        database_session.connection().exec_driver_sql("BEGIN IMMEDIATE")

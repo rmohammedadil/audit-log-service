@@ -339,3 +339,10 @@ Bearer dependencies validate explicit HS256 configuration and claims before
 database work, then enforce endpoint roles. JWT subject identifies the caller;
 business actorId remains a trusted writer-producer assertion. Key rotation,
 revocation, asymmetric signing, and IdP integration are not implemented.
+
+## Task 23 operational boundary
+
+Middleware returns an opaque request ID and logs only method, route, status,
+and duration. `/ready` runs `SELECT 1` and returns sanitized 503. SQLite write
+routes use `BEGIN IMMEDIATE`, which coordinates local writers but is not
+distributed concurrency control or a retry strategy.

@@ -543,3 +543,11 @@ regulator reports/verifies; admin queries/verifies/exports/retention/redaction.
 Startup rejects missing/short keys and missing issuer/audience. Environment-only
 keys, the local CLI, and no issuance endpoint are intentional. Key rotation,
 revocation, asymmetric keys, and IdP integration remain deferred.
+
+## 24. Essential operational hardening
+
+Safe structured request metadata and `X-Request-ID` are emitted without tokens,
+payloads, or account identifiers. `/health` is liveness; `/ready` checks the
+database and returns sanitized 503. SQLite writes use `BEGIN IMMEDIATE` with no
+automatic non-idempotent retry. No V3 index migration is introduced; whole-chain
+memory and SQLite scalability remain limitations.

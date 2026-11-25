@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import Engine, create_engine, inspect
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app import main as application_main
 from app import models  # Registers V3 models with the shared declarative base.
@@ -15,7 +17,9 @@ from app.database import (
     Base,
     database_url_from_path,
     preflight_database_schema,
+    begin_write_transaction,
 )
+from app.services.audit_service import append_audit_event, verify_audit_chain
 
 
 V2_TABLE_COLUMNS = {
@@ -148,6 +152,36 @@ def test_database_initializer_allows_an_existing_compatible_v3_database(
         application_main.initialize_database()
     finally:
         engine.dispose()
+
+
+def test_sqlite_immediate_write_lock_serializes_chain_appends(tmp_path: Path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'lock.db'}", connect_args={"timeout": 0.1})
+    try:
+        Base.metadata.create_all(engine)
+        with Session(engine) as first, Session(engine) as second:
+            begin_write_transaction(first)
+            append_audit_event(first, event_type="ONE", actor_id="a", resource_type="r", resource_id="1", payload={})
+            with pytest.raises(OperationalError):
+                begin_write_transaction(second)
+            first.commit()
+            begin_write_transaction(second)
+            append_audit_event(second, event_type="TWO", actor_id="b", resource_type="r", resource_id="2", payload={})
+            second.commit()
+        with Session(engine) as verifier:
+            assert verify_audit_chain(verifier).is_intact is True
+    finally:
+        engine.dispose()
+
+
+def test_readiness_sanitizes_database_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    class BrokenEngine:
+        def connect(self):
+            raise SQLAlchemyError("sensitive database path")
+
+    monkeypatch.setattr(application_main, "engine", BrokenEngine())
+    response = application_main.readiness_check()
+    assert response.status_code == 503
+    assert response.body == b'{"status":"unavailable"}'
 
 
 def test_preflight_rejects_v2_schema_without_mutating_database(tmp_path: Path) -> None:
