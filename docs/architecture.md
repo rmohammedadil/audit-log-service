@@ -332,3 +332,10 @@ in the report by default. No report operation writes evidence.
 The implementation deliberately does not translate generic audit events into
 access events. It therefore cannot demonstrate completeness of access logging;
 authentication and regulator-role authorization remain future Task 22 work.
+
+## Task 22 JWT boundary
+
+Bearer dependencies validate explicit HS256 configuration and claims before
+database work, then enforce endpoint roles. JWT subject identifies the caller;
+business actorId remains a trusted writer-producer assertion. Key rotation,
+revocation, asymmetric signing, and IdP integration are not implemented.

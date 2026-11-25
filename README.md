@@ -327,6 +327,32 @@ regulator-role authorization are deferred.
 
 ## Run tests
 
+## Local JWT setup
+
+```bash
+export AUDIT_JWT_SIGNING_KEY="replace-with-random-local-key-at-least-32-characters"
+export AUDIT_JWT_ISSUER="audit-local"
+export AUDIT_JWT_AUDIENCE="audit-api"
+TOKEN=$(python -m app.generate_token --subject local-admin --role admin)
+```
+
+Swagger supports Bearer authentication. Roles: writer creates; auditor queries,
+verifies, and exports; regulator reports and verifies; admin queries, verifies,
+exports, retains, and redacts. JWT subject is the caller, not business actorId.
+
+## Local JWT setup
+
+```bash
+export AUDIT_JWT_SIGNING_KEY="replace-with-random-local-key-at-least-32-characters"
+export AUDIT_JWT_ISSUER="audit-local"
+export AUDIT_JWT_AUDIENCE="audit-api"
+TOKEN=$(python -m app.generate_token --subject local-admin --role admin)
+```
+
+Swagger supports Bearer authentication. Roles: writer creates; auditor queries,
+verifies, and exports; regulator reports and verifies; admin queries, verifies,
+exports, retains, and redacts. JWT subject is the caller, not business actorId.
+
 Run the full suite from the repository root:
 
 ```bash

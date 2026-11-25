@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 
 import pytest
+import jwt
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
@@ -64,6 +65,7 @@ def persisted_string_value(case: str, maximum_length: int) -> str:
 @pytest.fixture()
 def api_client(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[tuple[TestClient, sessionmaker[Session]], None, None]:
     """Run the API against a temporary database and override startup safely."""
 
@@ -84,11 +86,16 @@ def api_client(
             database_session.close()
 
     original_initializer = app.state.database_initializer
+    monkeypatch.setenv("AUDIT_JWT_SIGNING_KEY", "test-signing-key-with-at-least-thirty-two-characters")
+    monkeypatch.setenv("AUDIT_JWT_ISSUER", "audit-test")
+    monkeypatch.setenv("AUDIT_JWT_AUDIENCE", "audit-api")
     app.state.database_initializer = lambda: None
     app.dependency_overrides[get_db] = override_get_db
 
     try:
         with TestClient(app) as client:
+            from app.auth import create_development_token
+            client.headers.update({"Authorization": f"Bearer {create_development_token('test-admin', ['admin', 'writer', 'auditor', 'regulator'])}"})
             yield client, test_session_factory
     finally:
         app.dependency_overrides.clear()
@@ -981,3 +988,49 @@ def test_access_report_includes_archived_records_by_default(
     })
     assert response.status_code == 200
     assert [record["id"] for record in response.json()] == [event_id]
+
+
+def role_token(role: str, **overrides: object) -> str:
+    claims = {
+        "sub": "test-user", "roles": [role], "iss": "audit-test", "aud": "audit-api",
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+    }
+    claims.update(overrides)
+    return jwt.encode(claims, "test-signing-key-with-at-least-thirty-two-characters", algorithm="HS256")
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Authorization": ""},
+        {"Authorization": "Bearer malformed"},
+        {"Authorization": f"Bearer {role_token('auditor', exp=datetime.now(timezone.utc) - timedelta(minutes=1))}"},
+        {"Authorization": f"Bearer {role_token('auditor', iss='wrong')}"},
+        {"Authorization": f"Bearer {role_token('auditor', aud='wrong')}"},
+        {"Authorization": f"Bearer {role_token('auditor', roles=['unknown'])}"},
+    ],
+)
+def test_audit_endpoints_reject_invalid_tokens(
+    api_client: tuple[TestClient, sessionmaker[Session]], headers: dict[str, str]
+) -> None:
+    client, session_factory = api_client
+    response = client.get("/audit/events", headers=headers)
+    assert response.status_code == 401
+    assert event_count(session_factory) == 0
+
+
+def test_rbac_enforces_role_matrix_and_rejects_unauthorized_writes(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, session_factory = api_client
+    writer = {"Authorization": f"Bearer {role_token('writer')}"}
+    auditor = {"Authorization": f"Bearer {role_token('auditor')}"}
+    regulator = {"Authorization": f"Bearer {role_token('regulator')}"}
+    assert client.post("/audit/events", json=VALID_EVENT, headers=writer).status_code == 201
+    assert client.get("/audit/events", headers=writer).status_code == 403
+    assert client.get("/audit/events", headers=auditor).status_code == 200
+    assert client.get("/audit/verify", headers=regulator).status_code == 200
+    assert client.post("/audit/exports", json={"actorId": "advisor-42"}, headers=regulator).status_code == 403
+    rejected = client.post("/audit/events", json={**VALID_EVENT, "resourceId": "forbidden"}, headers=auditor)
+    assert rejected.status_code == 403
+    assert event_count(session_factory) == 1

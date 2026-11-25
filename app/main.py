@@ -7,6 +7,7 @@ from app import models  # Registers SQLAlchemy models before schema creation.
 from app.api.audit_routes import router as audit_router
 from app.database import Base, engine, preflight_database_schema
 from app.services.retention_service import configured_retention_days
+from app.auth import jwt_configuration
 
 
 def initialize_database() -> None:
@@ -14,6 +15,7 @@ def initialize_database() -> None:
 
     # Reject an unsafe explicit policy before opening or mutating a database.
     configured_retention_days()
+    jwt_configuration()
     preflight_database_schema(engine)
     Base.metadata.create_all(bind=engine)
 

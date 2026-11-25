@@ -533,3 +533,13 @@ events rather than inferring access outcomes from their payloads. It performs
 full verification first, projects existing redaction overlays, and preserves
 original content/chain references. Reporting covers recorded events only and
 does not establish regulatory compliance or external-log completeness.
+
+## 23. JWT authentication and RBAC
+
+All `/audit` endpoints require an HS256 Bearer JWT with configured key, issuer,
+audience, expiry, subject, and allowed roles. Invalid/missing tokens return 401;
+insufficient roles return 403. Writer creates; auditor queries/verifies/exports;
+regulator reports/verifies; admin queries/verifies/exports/retention/redaction.
+Startup rejects missing/short keys and missing issuer/audience. Environment-only
+keys, the local CLI, and no issuance endpoint are intentional. Key rotation,
+revocation, asymmetric keys, and IdP integration remain deferred.

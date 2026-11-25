@@ -140,6 +140,10 @@ def test_database_initializer_allows_an_existing_compatible_v3_database(
     try:
         Base.metadata.create_all(engine)
         monkeypatch.setattr(application_main, "engine", engine)
+        # Startup must validate explicit JWT settings even for an isolated DB.
+        monkeypatch.setenv("AUDIT_JWT_SIGNING_KEY", "test-signing-key-with-at-least-thirty-two-characters")
+        monkeypatch.setenv("AUDIT_JWT_ISSUER", "audit-test")
+        monkeypatch.setenv("AUDIT_JWT_AUDIENCE", "audit-api")
 
         application_main.initialize_database()
     finally:

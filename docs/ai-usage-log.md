@@ -378,6 +378,16 @@ not represent approval or work that has not occurred.
   permission configuration was not diagnosed or repaired.
 - **Engineer review and approval of this implementation:** Pending.
 
+## Task 22 - JWT authentication and RBAC
+
+- **AI contribution:** Added environment configuration, JWT claim validation,
+  Bearer Swagger support, RBAC, local token CLI, and isolated tests.
+- **Boundary:** No token issuance endpoint, secrets manager, key rotation,
+  revocation, or IdP integration. JWT subject is distinct from business actorId.
+- **Validation:** Focused JWT/API coverage passed: 111 tests with one existing
+  Starlette `TestClient` warning. After the isolated startup-test configuration
+  correction, the complete suite passed: 315 tests with the same warning.
+
 ## Task 20 - Scenario C requirement clarification and design
 
 - **Planning only:** Recorded ambiguity questions and a proposed normalized

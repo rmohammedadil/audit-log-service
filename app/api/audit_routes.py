@@ -42,6 +42,7 @@ from app.services.redaction_service import (
 )
 from app.services.audit_service import masked_payload
 from app.services.export_service import create_audit_export
+from app.auth import AuthenticatedIdentity, require_roles
 
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -71,6 +72,7 @@ def _validate_filter(value: str | None, public_name: str) -> str | None:
 def create_audit_event(
     event_input: AuditEventCreate,
     database_session: Annotated[Session, Depends(get_db)],
+    _: Annotated[AuthenticatedIdentity, Depends(require_roles("writer"))],
 ) -> AuditEventRead:
     """Create one audit event and commit only after its response validates.
 
@@ -118,6 +120,7 @@ def redact_event(
     event_id: int,
     request: RedactionRequest,
     database_session: Annotated[Session, Depends(get_db)],
+    _: Annotated[AuthenticatedIdentity, Depends(require_roles("admin"))],
 ) -> RedactionRead:
     """Create a non-destructive redaction overlay in a trusted local setting."""
 
@@ -157,6 +160,7 @@ def redact_event(
 def run_configured_retention(
     database_session: Annotated[Session, Depends(get_db)],
     retention_request: RetentionRunRequest | None = None,
+    _: Annotated[AuthenticatedIdentity, Depends(require_roles("admin"))] = None,
 ) -> RetentionRunRead:
     """Run the configured logical-archive policy in a trusted local setting.
 
@@ -198,6 +202,7 @@ def run_configured_retention(
 def create_export(
     export_request: AuditExportRequest,
     database_session: Annotated[Session, Depends(get_db)],
+    _: Annotated[AuthenticatedIdentity, Depends(require_roles("auditor", "admin"))],
 ) -> dict:
     """Return a verified, self-contained bundle without mutating source evidence."""
 
@@ -235,6 +240,7 @@ def list_access_reports(
     from_timestamp: Annotated[datetime, Query(alias="from")],
     to_timestamp: Annotated[datetime, Query(alias="to")],
     database_session: Annotated[Session, Depends(get_db)],
+    _: Annotated[AuthenticatedIdentity, Depends(require_roles("regulator"))],
     account_id: Annotated[str | None, Query(alias="accountId", min_length=1, max_length=256)] = None,
     actor_id: Annotated[str | None, Query(alias="actorId", min_length=1, max_length=256)] = None,
     operation: Annotated[str | None, Query(min_length=1, max_length=16)] = None,
@@ -296,6 +302,7 @@ def list_access_reports(
 )
 def list_audit_events(
     database_session: Annotated[Session, Depends(get_db)],
+    _: Annotated[AuthenticatedIdentity, Depends(require_roles("auditor", "admin"))],
     actor_id: Annotated[
         str | None,
         Query(alias="actorId", min_length=1, max_length=256),
@@ -386,6 +393,7 @@ def list_audit_events(
 )
 def verify_audit_events(
     database_session: Annotated[Session, Depends(get_db)],
+    _: Annotated[AuthenticatedIdentity, Depends(require_roles("auditor", "regulator", "admin"))],
 ) -> AuditChainVerificationRead:
     """Return the verifier's read-only integrity result for the full chain.
 
