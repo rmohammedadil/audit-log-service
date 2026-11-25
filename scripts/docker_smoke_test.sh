@@ -12,9 +12,26 @@ cleanup() {
 }
 trap cleanup EXIT
 
+mask_for_actions() {
+  # GitHub consumes this workflow command before normal log output. Local runs
+  # intentionally do not print temporary credentials merely to mask them.
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    printf '::add-mask::%s\n' "$1"
+  fi
+}
+
+expect_status() {
+  local expected_status="$1"
+  shift
+  local actual_status
+  actual_status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' "$@")"
+  test "$actual_status" = "$expected_status"
+}
+
 # The values exist only in this process and Compose interpolation is checked quietly.
 export AUDIT_JWT_SIGNING_KEY
 AUDIT_JWT_SIGNING_KEY="$(openssl rand -hex 32)"
+mask_for_actions "$AUDIT_JWT_SIGNING_KEY"
 export AUDIT_JWT_ISSUER="audit-ci"
 export AUDIT_JWT_AUDIENCE="audit-ci-api"
 export AUDIT_RETENTION_DAYS="90"
@@ -25,7 +42,7 @@ export AUDIT_RETENTION_DAYS="90"
 
 wait_for_ready() {
   for _ in $(seq 1 30); do
-    if curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8000/ready >/dev/null; then
+    if [[ "$(curl --silent --show-error --max-time 2 --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/ready)" == "200" ]]; then
       return 0
     fi
     sleep 1
@@ -35,30 +52,32 @@ wait_for_ready() {
 }
 
 wait_for_ready
-curl --fail --silent --show-error http://127.0.0.1:8000/health >/dev/null
-curl --fail --silent --show-error http://127.0.0.1:8000/docs >/dev/null
-curl --fail --silent --show-error http://127.0.0.1:8000/openapi.json >/dev/null
-
-unauthenticated_status="$(curl --silent --output "$response_file" --write-out '%{http_code}' \
-  --header 'Content-Type: application/json' --request POST http://127.0.0.1:8000/audit/events \
-  --data '{"eventType":"ACCOUNT_UPDATED","actorId":"ci-actor","resourceType":"customer_account","resourceId":"ci-account-001","payload":{"change":"ci"}}')"
-test "$unauthenticated_status" = "401"
+expect_status 200 http://127.0.0.1:8000/health
+expect_status 200 http://127.0.0.1:8000/docs
+expect_status 200 http://127.0.0.1:8000/openapi.json
+expect_status 401 --header 'Content-Type: application/json' --request POST http://127.0.0.1:8000/audit/events \
+  --data '{"eventType":"ACCOUNT_UPDATED","actorId":"ci-actor","resourceType":"customer_account","resourceId":"ci-account-001","payload":{"change":"ci"}}'
 
 writer_token="$("${compose[@]}" exec --no-TTY audit-log-service python -m app.generate_token --subject ci-writer --role writer)"
-created_event="$(curl --fail --silent --show-error --header "Authorization: Bearer $writer_token" \
+mask_for_actions "$writer_token"
+expect_status 201 --header "Authorization: Bearer $writer_token" \
   --header 'Content-Type: application/json' --request POST http://127.0.0.1:8000/audit/events \
-  --data '{"eventType":"ACCOUNT_UPDATED","actorId":"ci-actor","resourceType":"customer_account","resourceId":"ci-account-001","payload":{"change":"ci"}}')"
+  --data '{"eventType":"ACCOUNT_UPDATED","actorId":"ci-actor","resourceType":"customer_account","resourceId":"ci-account-001","payload":{"change":"ci"}}'
+created_event="$(<"$response_file")"
 event_id="$(printf '%s' "$created_event" | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])')"
 
 auditor_token="$("${compose[@]}" exec --no-TTY audit-log-service python -m app.generate_token --subject ci-auditor --role auditor)"
-verification="$(curl --fail --silent --show-error --header "Authorization: Bearer $auditor_token" http://127.0.0.1:8000/audit/verify)"
+mask_for_actions "$auditor_token"
+expect_status 200 --header "Authorization: Bearer $auditor_token" http://127.0.0.1:8000/audit/verify
+verification="$(<"$response_file")"
 printf '%s' "$verification" | python3 -c 'import json, sys; assert json.load(sys.stdin)["isIntact"] is True'
 
 # A Compose recreation without --volumes must retain the event in the named volume.
 "${compose[@]}" down
 "${compose[@]}" up --detach
 wait_for_ready
-persisted_events="$(curl --fail --silent --show-error --header "Authorization: Bearer $auditor_token" http://127.0.0.1:8000/audit/events)"
+expect_status 200 --header "Authorization: Bearer $auditor_token" http://127.0.0.1:8000/audit/events
+persisted_events="$(<"$response_file")"
 printf '%s' "$persisted_events" | python3 -c 'import json, sys; expected = int(sys.argv[1]); assert expected in {item["id"] for item in json.load(sys.stdin)}' "$event_id"
 
 image_id="$("${compose[@]}" images --quiet audit-log-service)"

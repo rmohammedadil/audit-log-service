@@ -25,7 +25,9 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: Configure disposable test environment
         run: |
-          echo "AUDIT_JWT_SIGNING_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          signing_key="$(openssl rand -hex 32)"
+          echo "::add-mask::$signing_key"
+          echo "AUDIT_JWT_SIGNING_KEY=$signing_key" >> "$GITHUB_ENV"
           echo "AUDIT_JWT_ISSUER=audit-ci" >> "$GITHUB_ENV"
           echo "AUDIT_JWT_AUDIENCE=audit-ci-api" >> "$GITHUB_ENV"
           echo "AUDIT_DB_PATH=${RUNNER_TEMP}/audit-ci-tests.db" >> "$GITHUB_ENV"

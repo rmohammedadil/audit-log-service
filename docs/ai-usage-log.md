@@ -395,6 +395,11 @@ not represent approval or work that has not occurred.
   341 tests with one existing TestClient deprecation warning. Docker image and
   Compose runtime checks remain pending remote execution.
 
+- **Review correction:** Generated CI signing keys and smoke-test bearer tokens
+  are now registered with GitHub log masking before use. The smoke test asserts
+  exact 200/201/401 response contracts rather than accepting any successful
+  2xx response. Remote Docker validation remains pending.
+
 ## Task 27 - Transactional write idempotency
 
 - **AI contribution:** Added writer-scoped fingerprints, atomic replay mapping,
