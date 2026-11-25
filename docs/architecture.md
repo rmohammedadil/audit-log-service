@@ -274,3 +274,24 @@ content hash fails. Returned hashes remain commitments to the original payload,
 not the masked view. Redaction is application-layer masking only; the original
 value remains in the database and backups. Future export can reuse this safe
 projection boundary.
+
+## Task 18 Export Flow
+
+The export route owns no transaction writes. Its service first invokes the
+existing full verifier, then reads a single actor or resource subset in
+ascending ID order alongside the full payload-free chain witness and checkpoint
+snapshot. SQLite provides its normal read snapshot for the request; there is no
+concurrent-writer coordination or externally anchored snapshot guarantee.
+
+Selected records reuse the existing redaction projection, while their content
+and chain hashes remain original evidence. Applicable archive and redaction
+metadata is included without original sensitive values. A canonical JSON
+SHA-256 digest covers the whole bundle except its own digest field.
+
+The `app.verify_export` module deliberately duplicates only stable canonical
+verification rules with the Python standard library, so it can run without a
+database. It verifies internal witness/checkpoint consistency and unredacted
+record content. It cannot recompute a masked record's original content hash,
+prove the source database was authentic, or prove the selector result was
+complete; an expected digest must be retained externally to establish trust in
+the supplied bundle bytes.

@@ -17,6 +17,7 @@ from app.schemas import (
     AuditEventCreate,
     AuditEventRead,
     AuditEventQueryRead,
+    AuditExportRequest,
     RedactionRead,
     RedactionRequest,
     RetentionRunRead,
@@ -38,6 +39,7 @@ from app.services.redaction_service import (
     redact_audit_event,
 )
 from app.services.audit_service import masked_payload
+from app.services.export_service import create_audit_export
 
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -188,6 +190,38 @@ def run_configured_retention(
         ) from None
 
     return response
+
+
+@router.post("/exports")
+def create_export(
+    export_request: AuditExportRequest,
+    database_session: Annotated[Session, Depends(get_db)],
+) -> dict:
+    """Return a verified, self-contained bundle without mutating source evidence."""
+
+    try:
+        # The export service verifies the complete persisted chain before it
+        # reads a selected subset; it deliberately has no pagination limit.
+        return create_audit_export(
+            database_session,
+            actor_id=export_request.actor_id,
+            resource_id=export_request.resource_id,
+            include_archived=export_request.include_archived,
+        )
+    except AuditChainIntegrityError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Audit integrity check failed; export was not created",
+        ) from None
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from None
+    except (SQLAlchemyError, ValidationError):
+        database_session.rollback()
+        logger.error("Audit export failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to create audit export",
+        ) from None
 
 
 @router.get(

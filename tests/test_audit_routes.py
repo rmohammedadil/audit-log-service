@@ -852,3 +852,32 @@ def test_get_events_preserves_directly_modified_string_evidence(
     assert verify_response.json()["isIntact"] is False
     assert verify_response.json()["violationType"] == VIOLATION_CONTENT_HASH_MISMATCH
     assert verify_response.json()["firstInconsistencyId"] == created_event["id"]
+
+
+def test_export_api_returns_verified_actor_bundle(
+    api_client: tuple[TestClient, sessionmaker[Session]],
+) -> None:
+    client, _ = api_client
+    first = client.post("/audit/events", json=VALID_EVENT)
+    other = client.post("/audit/events", json={**VALID_EVENT, "actorId": "other-actor"})
+    assert first.status_code == other.status_code == 201
+
+    response = client.post("/audit/exports", json={"actorId": VALID_EVENT["actorId"]})
+    assert response.status_code == 200
+    bundle = response.json()
+    assert [record["id"] for record in bundle["records"]] == [first.json()["id"]]
+    assert [item["id"] for item in bundle["chainWitness"]] == [first.json()["id"], other.json()["id"]]
+    assert bundle["bundleDigest"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{}, {"actorId": "actor", "resourceId": "resource"}, {"actorId": "   "}, {"unexpected": "field"}],
+)
+def test_export_api_rejects_invalid_selector_input(
+    api_client: tuple[TestClient, sessionmaker[Session]], body: dict
+) -> None:
+    client, session_factory = api_client
+    response = client.post("/audit/exports", json=body)
+    assert response.status_code == 422
+    assert event_count(session_factory) == 0

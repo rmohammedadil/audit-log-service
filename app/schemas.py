@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from app.services.audit_service import RESERVED_LIFECYCLE_EVENT_TYPES
 
@@ -122,3 +122,21 @@ class RetentionRunRequest(BaseModel):
     """Deliberately empty body: policy and cutoff remain server-controlled."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class AuditExportRequest(BaseModel):
+    """One deliberately narrow selector for a self-contained export bundle."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actor_id: ActorId | None = Field(default=None, alias="actorId")
+    resource_id: ResourceId | None = Field(default=None, alias="resourceId")
+    include_archived: bool = Field(default=False, alias="includeArchived")
+
+    @model_validator(mode="after")
+    def require_exactly_one_selector(self) -> "AuditExportRequest":
+        """Reject ambiguous or unbounded exports before any database access."""
+
+        if (self.actor_id is None) == (self.resource_id is None):
+            raise ValueError("exactly one of actorId or resourceId is required")
+        return self

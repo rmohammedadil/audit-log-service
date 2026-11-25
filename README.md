@@ -252,6 +252,33 @@ GET responses include `redactedPaths` and replace selected values with
 payload, so it cannot be recomputed from the masked response. This is an
 application-layer mask, not permanent erasure from the database or backups.
 
+### Export verified evidence
+
+`POST /audit/exports` creates a self-contained JSON bundle for exactly one
+selector. It first verifies the full source chain, returns HTTP 409 for corrupt
+source evidence, and applies the same redaction overlays used by retrieval.
+
+```json
+{"actorId":"advisor-42","includeArchived":false}
+```
+
+Use `resourceId` instead of `actorId` to select by resource. The response
+contains selected masked records, applicable lifecycle metadata, a payload-free
+full-chain witness, a checkpoint snapshot, and a deterministic `bundleDigest`.
+There is no export pagination limit. Save the JSON response and verify it
+without the application database:
+
+```bash
+python -m app.verify_export audit_export.json
+python -m app.verify_export audit_export.json --expected-digest <trusted_digest>
+```
+
+The standalone verifier checks internal structure, digest, witness links,
+checkpoint, selected-record membership, and unredacted content hashes. It
+reports redacted records as not independently recomputable. An externally
+retained expected digest establishes only that the supplied file matches that
+digest; neither command proves source authenticity or export completeness.
+
 ## Run tests
 
 Run the full suite from the repository root:
@@ -326,11 +353,11 @@ needs to be retained.
   designed for very large audit histories.
 - There is no authentication or authorization, including no JWT or RBAC.
 - SQLite, startup `create_all`, and offset pagination are prototype choices;
-  there are no migrations, lifecycle services, archive filtering, redaction
-  projection, export, Docker, CI/CD, or production deployment configuration.
-- V3 archive and redaction metadata are a persistence foundation only. They do
-  not yet redact original values or project redacted payloads. Task 16 now
-  implements logical archival only; redaction and export remain deferred.
+  there are no migrations, Docker, CI/CD, or production deployment
+  configuration.
+- Redaction is a retrieval mask rather than permanent erasure. Exports are
+  in-memory bundles and full-chain verification/export are not designed for
+  very large histories.
 - Retention verifies the full chain before writing and loads each eligible
   record into memory for one action-event batch. There is no scheduler, batch
   streaming, concurrent-writer coordination, or storage reclamation.
@@ -349,9 +376,7 @@ sets with the expected V3 schema before calling `create_all`. It rejects V1,
 V2, partial, and mixed audit schemas rather than adding V3 tables to them. It does not
 validate database column types, constraints, indexes, or SQLite table SQL.
 
-Planned Scenario B work concerns retention execution, redaction projection,
-lifecycle metadata/action consistency verification, and export. Future
-lifecycle and export HTTP endpoints are intended only for trusted local
+Scenario B lifecycle and export endpoints are intended only for trusted local
 assessment use until authentication and authorization are implemented.
 Scenario C and broader production hardening are intentionally not implemented
 here.

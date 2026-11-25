@@ -453,6 +453,27 @@ not represent approval or work that has not occurred.
   retrieval, atomic rollback, Scenario A/retention compatibility, final
   regression validation, and database preservation.
 
+## Task 18 - Bulk Export and Independent Verification
+
+- **AI contribution:** Added a read-only export service and `POST /audit/exports`,
+  plus a standard-library-only `python -m app.verify_export` utility. Reused
+  existing full-chain verification, lifecycle overlays, canonical hashing, and
+  redaction projection rather than creating alternate evidence rules.
+- **Implementation decision:** Bundles contain masked selected records, related
+  lifecycle metadata, a payload-free ordered witness, checkpoint state, fixed
+  scheme/genesis values, and a canonical SHA-256 digest. The standalone tool
+  distinguishes internal consistency from comparison with an externally
+  retained expected digest and labels redacted content as non-recomputable.
+- **Validation:** Focused export/API coverage passed: 105 tests with one
+  existing Starlette `TestClient` deprecation warning. The complete regression
+  suite, using a fresh external disposable pytest base directory, passed: 296
+  tests with the same single warning. No manual Swagger testing was performed;
+  comprehensive manual API validation remains deferred to Task 19.
+- **Engineer approval:** The engineer accepted Task 17 and authorized Task 18
+  implementation and commit after the specified integrity, redaction, archive,
+  verifier, and regression checks. This entry records the actual completion
+  result; it does not claim manual Swagger validation.
+
 ## Task 12 - Evidence-preserving response schemas
 
 - **Engineering improvement:** Supports Scenario A audit-evidence fidelity by

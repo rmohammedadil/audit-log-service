@@ -452,3 +452,28 @@ archive checks. `REDACTION_MALFORMED_ACTION` covers malformed action evidence;
 overlapping, invalid-path, target/reference/reason/timestamp-inconsistent
 metadata. Export may reuse this projection later. No access control,
 concurrency coordination, or permanent deletion is implemented.
+
+## 20. Bulk Export and Independent Verification
+
+`POST /audit/exports` accepts exactly one nonblank selector, `actorId` or
+`resourceId`, plus optional `includeArchived` (default `false`). It verifies
+the full source chain before collecting every matching row in ascending ID
+order; it does not reuse ordinary retrieval pagination. Source integrity or
+lifecycle verification failure returns HTTP 409, while invalid input returns
+HTTP 422 and operational failures are sanitized HTTP 500 responses.
+
+The `audit-export-v1` JSON bundle has a UTC export timestamp, selector/options,
+masked selected records with their original integrity fields, applicable
+archive/redaction metadata, fixed scheme/genesis values, a payload-free full
+ordered chain witness, checkpoint snapshot, and SHA-256 `bundleDigest`. The
+digest is deterministic canonical UTF-8 JSON excluding `bundleDigest` itself.
+Original redacted values are never exported.
+
+`python -m app.verify_export audit_export.json` uses only the standard library
+and no application database. It validates internal structure, digest, witness
+links, checkpoint, selected-record membership, and content hashes only where a
+selected payload is unredacted. Redacted records are explicitly counted as not
+independently recomputable. `--expected-digest` compares against a separately
+retained digest. Neither internal consistency nor a matching digest proves
+source authenticity, selection completeness, or protection from a privileged
+coordinated rewrite of the source database.
