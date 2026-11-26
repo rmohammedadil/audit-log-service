@@ -220,7 +220,7 @@ diagnostics outside the caller's authorized resource scope.
 | Redact event | role `admin`; `REDACT_EVENT` for target resource | Lookup is tenant-scoped by opaque `event_ref`; absent/ungranted target returns the same 404 response. |
 | Retention | role `admin`; `RUN_RETENTION` tenant permission | Executes only one tenant policy; result avoids resource IDs unless tenant-wide permission permits them. |
 | Verify tenant chain | permitted role; `VERIFY_TENANT_CHAIN` | No global verification endpoint for ordinary tenants. Unauthorized caller receives generic 403. |
-| Export | auditor/admin role; resource export grant plus `EXPORT_TENANT_WITNESS` | Deny when witness permission is absent; no cross-resource witness, counts, or checkpoint data. |
+| Export | auditor/admin role; resource export grant plus `EXPORT_TENANT_WITNESS` | An explicit ungranted resource is denied. Actor-selected exports are intersected with authorized resource scope first, so hidden-only and nonexistent actors both return an empty valid export; no cross-resource records, resource identifiers, or payloads are disclosed. |
 | Access reports | role `regulator`; `READ_ACCESS_REPORT` per account | Broad reports are intersected with grants; cross-tenant/ungranted account filters produce an empty list. |
 
 All protected operations first validate JWT signature, issuer, audience,

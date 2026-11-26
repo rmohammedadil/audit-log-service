@@ -51,6 +51,12 @@ def calculate_v4_chain_hash(*, tenant_id: str, tenant_sequence: int, content_has
     return sha256(_json({"domain":V4_CHAIN_DOMAIN,"hashSchemeVersion":hash_scheme_version,"tenantId":validate_tenant_id(tenant_id),"tenantSequence":tenant_sequence,"contentHash":content_hash,"previousChainHash":previous_chain_hash})).hexdigest()
 def begin_v4_write_transaction(session: Session) -> None:
     if session.bind is not None and session.bind.dialect.name == "sqlite": session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+
+def begin_v4_read_snapshot(session: Session) -> None:
+    """Begin SQLite's deferred transaction before grants and evidence reads."""
+
+    if session.bind is not None and session.bind.dialect.name == "sqlite":
+        session.connection().exec_driver_sql("BEGIN")
 def verify_v4_tenant_chain(session: Session, tenant_id: str) -> V4VerificationResult:
     """Read V4 evidence without flushing unrelated caller-owned changes."""
 
@@ -109,6 +115,9 @@ def redact_v4_event(session: Session, *, tenant_id: str, event_ref: str, paths: 
     for pointer in fresh:
         action=append_v4_audit_event(session,tenant_id=tenant_id,event_type="V4_EVENT_REDACTED",actor_id=operator,resource_type=event.resource_type,resource_id=event.resource_id,payload={"eventRef":event.event_ref,"path":pointer,"reason":reason})
         session.add(V4AuditEventRedaction(tenant_id=tenant_id,target_event_id=event.id,json_pointer=pointer,redaction_action_event_id=action.id,redacted_at=action.timestamp,redaction_reason=reason))
+        # The next lifecycle action verifies persisted evidence, so make this
+        # action/metadata pair visible before iterating to another path.
+        session.flush()
     return event,fresh
 
 def archive_v4_events(session: Session, *, tenant_id: str, retention_days: int, operator: str) -> int:
@@ -120,19 +129,96 @@ def archive_v4_events(session: Session, *, tenant_id: str, retention_days: int, 
     for target in targets:
         if target.id in archived or target.event_type.startswith("V4_EVENT_"): continue
         action=append_v4_audit_event(session,tenant_id=tenant_id,event_type="V4_EVENT_ARCHIVED",actor_id=operator,resource_type=target.resource_type,resource_id=target.resource_id,payload={"eventRef":target.event_ref,"retentionDays":retention_days})
-        session.add(V4AuditEventArchive(tenant_id=tenant_id,target_event_id=target.id,archive_action_event_id=action.id,archived_at=action.timestamp)); count+=1
+        session.add(V4AuditEventArchive(tenant_id=tenant_id,target_event_id=target.id,archive_action_event_id=action.id,archived_at=action.timestamp))
+        # Keep every persisted action paired before the following append runs
+        # the fail-closed tenant integrity verification.
+        session.flush(); count+=1
     return count
 
 def verify_v4_lifecycle(session: Session, tenant_id: str) -> bool:
-    """Validate tenant-bound lifecycle metadata against its chained action."""
-    for archive in session.scalars(select(V4AuditEventArchive).where(V4AuditEventArchive.tenant_id==tenant_id)):
-        target=session.get(V4AuditEvent,archive.target_event_id); action=session.get(V4AuditEvent,archive.archive_action_event_id)
-        if target is None or action is None or target.tenant_id!=tenant_id or action.tenant_id!=tenant_id or action.event_type!="V4_EVENT_ARCHIVED" or action.payload.get("eventRef")!=target.event_ref: return False
-        days=action.payload.get("retentionDays")
-        if type(days) is not int or not 0 < days <= 36_500 or archive.archived_at != action.timestamp or not target.timestamp < action.timestamp-timedelta(days=days): return False
-    for redaction in session.scalars(select(V4AuditEventRedaction).where(V4AuditEventRedaction.tenant_id==tenant_id)):
-        target=session.get(V4AuditEvent,redaction.target_event_id); action=session.get(V4AuditEvent,redaction.redaction_action_event_id)
-        if target is None or action is None or target.tenant_id!=tenant_id or action.tenant_id!=tenant_id or action.event_type!="V4_EVENT_REDACTED" or action.payload.get("eventRef")!=target.event_ref or action.payload.get("path")!=redaction.json_pointer or action.payload.get("reason")!=redaction.redaction_reason or redaction.redacted_at != action.timestamp: return False
-        try: validate_json_pointer(target.payload, redaction.json_pointer)
-        except ValueError: return False
-    return True
+    """Require a one-to-one match between lifecycle actions and metadata.
+
+    Lifecycle metadata controls redaction and archival projections, so checking
+    only metadata rows would fail open if an attacker deleted one while leaving
+    its already-chained action event intact.  Read raw persisted values rather
+    than ORM instances to avoid a stale identity map masking that corruption.
+    """
+
+    tenant_id = validate_tenant_id(tenant_id)
+    with session.no_autoflush:
+        events = list(session.execute(text(
+            "SELECT id, tenant_id, event_ref, event_type, resource_type, resource_id, "
+            "payload AS payload_raw, timestamp AS timestamp_raw "
+            "FROM v4_audit_events WHERE tenant_id=:tenant_id"
+        ), {"tenant_id": tenant_id}).mappings())
+        archives = list(session.execute(text(
+            "SELECT tenant_id, target_event_id, archive_action_event_id, "
+            "archived_at AS archived_at_raw FROM v4_audit_event_archives "
+            "WHERE tenant_id=:tenant_id"
+        ), {"tenant_id": tenant_id}).mappings())
+        redactions = list(session.execute(text(
+            "SELECT tenant_id, target_event_id, json_pointer, redaction_action_event_id, "
+            "redacted_at AS redacted_at_raw, redaction_reason "
+            "FROM v4_audit_event_redactions WHERE tenant_id=:tenant_id"
+        ), {"tenant_id": tenant_id}).mappings())
+
+    by_ref = {event["event_ref"]: event for event in events}
+    expected_archives: dict[int, tuple[int, datetime]] = {}
+    expected_redactions: dict[int, tuple[int, str, datetime, str]] = {}
+
+    try:
+        for action in events:
+            if action["event_type"] not in {"V4_EVENT_ARCHIVED", "V4_EVENT_REDACTED"}:
+                continue
+            payload = _persisted_payload(action["payload_raw"])
+            target = by_ref.get(_event_ref(payload.get("eventRef")))
+            action_timestamp = _persisted_timestamp(action["timestamp_raw"])
+            if (
+                target is None
+                or target["tenant_id"] != tenant_id
+                or action["resource_type"] != target["resource_type"]
+                or action["resource_id"] != target["resource_id"]
+            ):
+                return False
+            if action["event_type"] == "V4_EVENT_ARCHIVED":
+                days = payload.get("retentionDays")
+                if type(days) is not int or not 0 < days <= 36_500:
+                    return False
+                target_timestamp = _persisted_timestamp(target["timestamp_raw"])
+                if not target_timestamp < action_timestamp - timedelta(days=days):
+                    return False
+                expected_archives[action["id"]] = (target["id"], action_timestamp)
+            else:
+                path, reason = payload.get("path"), payload.get("reason")
+                if not isinstance(path, str) or reason not in REDACTION_REASON_CODES:
+                    return False
+                validate_json_pointer(_persisted_payload(target["payload_raw"]), path)
+                expected_redactions[action["id"]] = (
+                    target["id"], path, action_timestamp, reason
+                )
+
+        actual_archives: dict[int, tuple[int, datetime]] = {}
+        for archive in archives:
+            action_id = archive["archive_action_event_id"]
+            if archive["tenant_id"] != tenant_id or action_id in actual_archives:
+                return False
+            actual_archives[action_id] = (
+                archive["target_event_id"], _persisted_timestamp(archive["archived_at_raw"])
+            )
+
+        actual_redactions: dict[int, tuple[int, str, datetime, str]] = {}
+        for redaction in redactions:
+            action_id = redaction["redaction_action_event_id"]
+            if redaction["tenant_id"] != tenant_id or action_id in actual_redactions:
+                return False
+            actual_redactions[action_id] = (
+                redaction["target_event_id"], redaction["json_pointer"],
+                _persisted_timestamp(redaction["redacted_at_raw"]),
+                redaction["redaction_reason"],
+            )
+    except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+        return False
+
+    # Equality validates both directions: no action without metadata and no
+    # metadata without exactly its chained action.
+    return actual_archives == expected_archives and actual_redactions == expected_redactions

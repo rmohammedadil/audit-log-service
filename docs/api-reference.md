@@ -193,11 +193,14 @@ Roles: `auditor`, `admin`.
 {"actorId":"advisor-demo","includeArchived":true}
 ```
 
-Exactly one `actorId` or `resourceId` selector is required. HTTP 200 returns an
-unsigned `audit-export-v1` or configured signed `audit-export-v2` bundle with
-selected projected records, metadata, full payload-free chain witness,
-checkpoint, digest, and optional Ed25519 signature. Selection input is 422;
-untrusted source is 409. Export has no ordinary retrieval-pagination limit.
+Exactly one `actorId` or `resourceId` selector is required. HTTP 200 returns a
+V4 `audit-v4-export-v1` bundle with selected projected records, a payload-free
+chain witness, checkpoint, digest, and optional Ed25519 signature. An explicit
+`resourceId` without an exact active export grant returns 403. For an
+`actorId`, the service intersects records with the caller's exact authorized
+resource scope before actor matching; hidden-only and nonexistent actors both
+produce a valid empty export. Selection input is 422; untrusted source is 409.
+Export has no ordinary retrieval-pagination limit.
 
 ```bash
 python -m app.verify_export audit-export.json

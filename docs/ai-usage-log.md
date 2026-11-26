@@ -1159,3 +1159,142 @@ record.
   and validator artifacts were kept outside the repository and cleanup was
   requested after shutdown. This is local Uvicorn evidence only; Docker runtime
   validation remains unavailable.
+
+## Task 37B.1 - Bidirectional V4 lifecycle integrity verification
+
+- **Engineer request and AI contribution:** Implemented the focused follow-up
+  to the Task 37A read-only review. The V4 lifecycle verifier now reads raw
+  persisted action and metadata evidence and requires an exact one-to-one match
+  in both directions. A chained archive or redaction action without its
+  corresponding metadata is now an integrity failure, as is unexpected,
+  duplicate, or mismatched metadata.
+- **Defect and correction:** The first implementation exposed a transaction
+  ordering issue for multi-path redaction and multi-target retention: a flushed
+  lifecycle action could be observed before its newly added metadata during the
+  next append's integrity check. The lifecycle services now flush each metadata
+  row inside the caller-owned transaction before proceeding to another action.
+  No commit or rollback ownership moved into the services.
+- **Regression coverage and validation:** Added direct-SQL tampering coverage
+  for deleted redaction metadata, partial deletion from multi-path redaction,
+  and partial deletion from multi-target archival. The tests assert fail-closed
+  retrieval, idempotent replay, mutation, export, and access-report behavior;
+  a non-intact verification response; unchanged evidence after denied writes;
+  and no return of the redacted sensitive value. Focused V4 route and
+  foundation suites passed: 44 tests with one existing TestClient deprecation
+  warning in 21.43 seconds.
+- **Limitations:** This focused task did not run the complete regression suite,
+  change actor-based export selection, or address the separately identified
+  authorization read-snapshot race coverage gap. Same-database privileged
+  attackers remain within the documented trust boundary.
+
+## Task 37B.2 - Actor export authorization correction
+
+- **Engineer request and AI contribution:** Corrected the Task 37A actor-export
+  existence oracle. V4 export generation now applies the caller's exact active
+  `EXPORT_RESOURCE` scope before actor matching. Actor-selected exports return
+  only authorized records, or an empty valid bundle when no authorized match
+  exists; an explicitly requested ungranted `resourceId` remains a generic
+  403 denial.
+- **Consistency decision:** The export route now begins a SQLite deferred read
+  transaction before membership, witness permission, resource-grant, integrity,
+  selection, witness, and checkpoint reads. It releases that read-only snapshot
+  with rollback after constructing the bundle and rolls back on all failures.
+- **Regression coverage and validation:** Added mixed authorized/ungranted
+  actor records, hidden-only actor, nonexistent actor, and revoked-grant
+  assertions. The tests prove hidden-only and nonexistent actors both return
+  HTTP 200 with empty records, while mixed actors receive only authorized
+  records and explicit ungranted resources remain 403. Focused V4 route and
+  offline export-verification suites passed with coverage disabled: 36 tests,
+  one existing TestClient deprecation warning, in 12.41 seconds.
+- **Limitations:** A tenant-witness permission still intentionally discloses
+  tenant-chain witness metadata permitted by the authorization design; it never
+  includes payloads or resource identifiers. This task did not run the complete
+  regression suite or change the separate lifecycle-integrity correction.
+
+## Task 37B.3 - Remaining targeted adversarial authorization tests
+
+- **Engineer request and AI contribution:** Added focused V4 adversarial route
+  coverage for known ungranted, cross-tenant, and nonexistent opaque redaction
+  references; inactive memberships; revoked lifecycle permissions; and
+  cross-resource idempotency-key requests. The three redaction denial cases
+  return the same 404 response and leave event, lifecycle metadata, and
+  checkpoint evidence unchanged. A request that reuses a key on an ungranted
+  resource is denied before idempotency lookup with the generic 403 response.
+- **Consistency correction:** Extended the explicit SQLite deferred read
+  snapshot boundary used by export to event retrieval and compliance reporting.
+  Each route now releases its read-only transaction after materializing its
+  response and rolls it back on denial or error.
+- **Concurrent validation:** Added independent-session, bounded concurrent
+  grant-revocation coverage for retrieval, export, and access reporting. Each
+  in-flight request observes one consistent authorized snapshot; the revocation
+  completes after that response and the following request returns no evidence.
+  This establishes the intended SQLite serialization behavior without granting
+  a revoked principal access in a later request.
+- **Validation:** Focused V4 route and offline export-verification suites ran
+  with coverage disabled: 43 tests passed with one existing TestClient
+  deprecation warning in 13.52 seconds. No complete regression suite ran.
+- **Limitations:** The snapshot guarantee is implemented and tested for the
+  current SQLite deployment. Other database backends require an explicit
+  isolation-level review. This task did not alter the documented trusted
+  database-administrator boundary or run the full suite.
+
+## Task 37C - Full Adversarial Security Regression
+
+Date: 2026-11-27
+
+### Objective
+
+Validate the combined Task 37B.1, 37B.2 and 37B.3
+security corrections against the complete regression suite.
+
+### AI Assistance and Developer Ownership
+
+Codex implemented the targeted security corrections and
+focused regression tests during Tasks 37B.1 through 37B.3.
+
+Codex reached its usage limit after reporting 43 passing
+focused tests for Task 37B.3.
+
+ChatGPT assisted with reviewing the reported results,
+preparing manual validation commands and interpreting
+coverage measurements.
+
+The developer manually executed the full regression
+and repository validation commands using Git Bash
+on the local Windows development environment.
+
+### Validation Results
+
+- Baseline commit: 4f823de
+- Python version: 3.12.7
+- Full regression: 441 passed, 0 failed
+- Existing TestClient deprecation warning: 1
+- Pytest exit code: 0
+- Execution duration: 81.86 seconds
+- Line coverage: 1920/2133 (90.01%)
+- Branch coverage: 534/678 (78.76%)
+- Combined coverage: 87.30%
+- Previous full regression: 430 passing tests
+- Additional passing tests: 11
+
+### Generated Evidence
+
+- .coverage-reports/task37c-regression.log
+- .coverage-reports/task37c-regression.exitcode
+- .coverage-reports/coverage.json
+- .coverage-reports/coverage.xml
+- .coverage-reports/html/index.html
+
+### Limitations and Remaining Work
+
+The complete regression passed with the combined
+security changes.
+
+Coverage threshold enforcement, critical-module
+coverage assessment, CI artifact publication and
+independent security review remain pending.
+
+The regression results do not establish the absence
+of all possible security vulnerabilities.
+
+No external evaluation acceptance is claimed.

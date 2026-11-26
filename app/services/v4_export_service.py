@@ -5,16 +5,27 @@ from app.export_signing import sign_digest_if_configured
 from app.services.export_service import calculate_bundle_digest
 from app.services.v4_audit_service import V4_CHAIN_DOMAIN, V4_GENESIS_CONTENT_HASH, v4_genesis_chain_hash, v4_redacted_payload, verify_v4_tenant_chain
 from app.v4_models import V4AuditEvent, V4AuditEventArchive, V4TenantChainState
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 def create_v4_export(session: Session, *, tenant_id: str, actor_id: str|None, resource_id: str|None, include_archived: bool, authorized: set[tuple[str,str]]) -> dict:
     if (actor_id is None)==(resource_id is None): raise ValueError("exactly one selector is required")
     if not verify_v4_tenant_chain(session,tenant_id).is_intact: raise ValueError("integrity")
     events=list(session.scalars(select(V4AuditEvent).where(V4AuditEvent.tenant_id==tenant_id).order_by(V4AuditEvent.tenant_sequence)))
-    archived=set(session.scalars(select(V4AuditEventArchive.target_event_id).where(V4AuditEventArchive.tenant_id==tenant_id)))
-    chosen=[event for event in events if (event.actor_id==actor_id if actor_id else event.resource_id==resource_id) and not event.event_type.startswith("V4_EVENT_") and (include_archived or event.id not in archived)]
-    if any((event.resource_type,event.resource_id) not in authorized for event in chosen): raise PermissionError()
+    selected=select(V4AuditEvent).where(
+        V4AuditEvent.tenant_id==tenant_id,
+        ~V4AuditEvent.event_type.like("V4_EVENT_%"),
+    )
+    if actor_id is not None:
+        # Scope before actor matching so a 200 empty export does not reveal
+        # whether the actor has activity on a resource the caller cannot read.
+        selected=selected.where(tuple_(V4AuditEvent.resource_type,V4AuditEvent.resource_id).in_(list(authorized)),V4AuditEvent.actor_id==actor_id)
+    else:
+        if ("customer_account",resource_id) not in authorized: raise PermissionError()
+        selected=selected.where(V4AuditEvent.resource_type=="customer_account",V4AuditEvent.resource_id==resource_id)
+    if not include_archived:
+        selected=selected.where(~V4AuditEvent.id.in_(select(V4AuditEventArchive.target_event_id).where(V4AuditEventArchive.tenant_id==tenant_id)))
+    chosen=list(session.scalars(selected.order_by(V4AuditEvent.tenant_sequence)))
     records=[]
     for event in chosen:
         payload,paths=v4_redacted_payload(session,event)
