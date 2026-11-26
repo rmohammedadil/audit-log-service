@@ -21,3 +21,11 @@ class V4AuditEventRead(BaseModel):
     chain_hash: str = Field(alias="chainHash")
 
 V4AuditEventCreate = AuditEventCreate
+
+class V4ExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor_id: str | None = Field(default=None, alias="actorId", min_length=1, max_length=256)
+    resource_id: str | None = Field(default=None, alias="resourceId", min_length=1, max_length=256)
+    include_archived: bool = Field(default=False, alias="includeArchived")
+    def model_post_init(self, __context: Any) -> None:
+        if (self.actor_id is None) == (self.resource_id is None): raise ValueError("exactly one selector is required")

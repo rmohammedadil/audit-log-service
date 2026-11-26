@@ -201,7 +201,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with Path(args.bundle).open("r", encoding="utf-8") as handle:
             bundle = json.load(handle)
-        result = verify_bundle(bundle, args.expected_digest, args.public_key)
+        if isinstance(bundle, dict) and bundle.get("bundleSchemaVersion") == "audit-v4-export-v1":
+            from app.verify_v4_export import verify_v4_bundle
+            result = verify_v4_bundle(bundle, args.expected_digest, args.public_key)
+        else:
+            result = verify_bundle(bundle, args.expected_digest, args.public_key)
     except (OSError, json.JSONDecodeError, BundleVerificationError) as error:
         print(f"verification failed: {error}", file=sys.stderr)
         return 1

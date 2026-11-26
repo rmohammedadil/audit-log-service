@@ -1053,3 +1053,31 @@ record.
 - **Limitations:** This remains an isolated V4 application. Full V4 endpoint
   integration, public verification/export/report services, and default-app
   cutover remain later-stage work.
+
+## Task 36E - Scoped V4 verification, exports and reports
+
+- **AI contribution:** Added isolated tenant verification and access reports,
+  V4 export generation, a tenant-bound witness format, and a standalone V4
+  bundle verifier dispatched by the existing CLI without changing legacy
+  verification. Exports require explicit resource grants and tenant witness
+  permission; reports constrain tenant/resource scope before filters and
+  pagination.
+- **Security correction:** Focused export tests found that an explicit resource
+  selector without an active export grant could return an empty bundle. The
+  V4 route now denies that selector. Witnesses exclude payloads, resource IDs,
+  and internal IDs; selected records use redaction masking.
+- **Validation:** Focused V4 route/export/verifier tests passed: 30 tests with
+  one existing TestClient deprecation warning in 11.67 seconds. Persisted full
+  regression output outside pytest's base directory recorded 412 passed tests,
+  the same warning, and exit code 0 in 61.33 seconds.
+- **Limitations:** V4 export verification establishes bundle consistency, not
+  source authenticity or selection completeness. Redacted original content is
+  intentionally not recomputable offline. Default-app V4 cutover remains a
+  later stage.
+- **Final verifier review:** Corrected three V4 verifier defects: witness
+  entries now bind opaque event references to selected records; trusted
+  expected-digest checks now reach V4 direct and CLI verification; and trusted
+  public-key validation checks the declared signature key ID. Affected V4
+  route/export/verifier and legacy export tests passed: 46 tests with one
+  existing warning in 9.46 seconds. Final persisted regression recorded 412
+  passed tests, the same warning, and exit code 0 in 54.99 seconds.

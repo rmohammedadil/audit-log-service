@@ -14,6 +14,8 @@ from app.v4_models import V4AuditEvent
 from app.services.v4_audit_service import append_v4_audit_event, begin_v4_write_transaction
 from app.services.v4_audit_service import archive_v4_events, redact_v4_event, verify_v4_tenant_chain
 from app.v4_models import V4AuditEventArchive, V4AuditEventRedaction
+from app.services.export_service import calculate_bundle_digest
+from app.verify_v4_export import verify_v4_bundle
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
@@ -24,11 +26,13 @@ def client(tmp_path, monkeypatch):
     from app.v4_main import create_v4_app
     path=str(tmp_path/"v4.sqlite"); engine=initialize_v4_database(path)
     with Session(engine) as session:
-        for tenant,subject in (("tenant-a","writer"),("tenant-a","auditor"),("tenant-a","admin"),("tenant-b","writer")):
+        for tenant,subject in (("tenant-a","writer"),("tenant-a","auditor"),("tenant-a","admin"),("tenant-a","regulator"),("tenant-b","writer")):
             p=TenantPrincipal(tenant_id=tenant,subject=subject,active=True); session.add(p); session.flush()
-            permission=ResourcePermission.CREATE_EVENT.value if subject=="writer" else (ResourcePermission.REDACT_EVENT.value if subject=="admin" else ResourcePermission.READ_EVENT.value)
+            permission=ResourcePermission.CREATE_EVENT.value if subject=="writer" else (ResourcePermission.REDACT_EVENT.value if subject=="admin" else (ResourcePermission.READ_ACCESS_REPORT.value if subject=="regulator" else (ResourcePermission.EXPORT_RESOURCE.value if subject=="auditor" else ResourcePermission.READ_EVENT.value)))
             session.add(ResourceGrant(tenant_id=tenant,principal_id=p.id,resource_type="customer_account",resource_id="account-1",permission=permission,active=True))
+            if subject=="auditor": session.add(ResourceGrant(tenant_id=tenant,principal_id=p.id,resource_type="customer_account",resource_id="account-1",permission=ResourcePermission.READ_EVENT.value,active=True))
             if subject=="admin": session.add(TenantPermissionGrant(tenant_id=tenant,principal_id=p.id,permission=TenantPermission.RUN_RETENTION.value,active=True))
+            if subject=="auditor": session.add(TenantPermissionGrant(tenant_id=tenant,principal_id=p.id,permission=TenantPermission.EXPORT_TENANT_WITNESS.value,active=True))
         session.commit()
     yield TestClient(create_v4_app(path)), engine
     engine.dispose()
@@ -71,7 +75,7 @@ def test_v4_denies_inactive_or_revoked_replay_and_allows_tenant_scoped_same_key(
 
 def test_v4_app_does_not_expose_legacy_routes_or_internal_identifiers(client):
     api,_=client
-    assert api.get("/audit/verify",headers=headers("writer","writer","tenant-a")).status_code==404
+    assert api.get("/audit/verify",headers=headers("writer","writer","tenant-a")).status_code==403
     assert api.get("/audit/retention/run",headers=headers("writer","writer","tenant-a")).status_code==405
     created=api.post("/audit/events",json=EVENT,headers=headers("writer","writer","tenant-a"))
     assert created.status_code==201 and "id" not in created.json() and "tenantSequence" not in created.json()
@@ -141,6 +145,47 @@ def test_v4_concurrent_redaction_serializes_to_one_metadata_row(client):
     with Session(engine) as session:
         assert session.query(V4AuditEventRedaction).count()==1
         assert verify_v4_tenant_chain(session,"tenant-a").is_intact
+
+def test_v4_verify_and_access_reports_are_tenant_resource_scoped(client):
+    api,_=client
+    payload={"operation":"READ","outcome":"SUCCESS"}
+    assert api.post("/audit/events",json={**EVENT,"eventType":"CLIENT_ACCOUNT_ACCESS","payload":payload},headers=headers("writer","writer","tenant-a")).status_code==201
+    # No tenant-wide verification grant is provisioned for the regulator.
+    assert api.get("/audit/verify",headers=headers("regulator","regulator","tenant-a")).status_code==403
+    report=api.get("/audit/access-reports?from=2020-01-01T00:00:00Z&to=2030-01-01T00:00:00Z",headers=headers("regulator","regulator","tenant-a"))
+    assert report.status_code==200 and len(report.json())==1 and "id" not in report.json()[0]
+
+def test_v4_export_requires_witness_and_masks_records(client):
+    api,engine=client; event=api.post("/audit/events",json={**EVENT,"payload":{"secret":"x"}},headers=headers("writer","writer","tenant-a")).json()
+    assert api.post(f"/audit/events/{event['eventRef']}/redact",json={"paths":["/secret"],"reason":"PRIVACY_REQUEST"},headers=headers("admin","admin","tenant-a")).status_code==200
+    bundle=api.post("/audit/exports",json={"resourceId":"account-1"},headers=headers("auditor","auditor","tenant-a"))
+    assert bundle.status_code==200 and bundle.json()["records"][0]["payload"]["secret"]=="[REDACTED]" and "resourceId" not in bundle.json()["chainWitness"][0]
+    exported=bundle.json(); assert exported["bundleDigest"]==calculate_bundle_digest(exported) and verify_v4_bundle(exported)["isValid"]
+    with Session(engine) as session:
+        grant=session.scalar(__import__("sqlalchemy").select(TenantPermissionGrant).where(TenantPermissionGrant.permission==TenantPermission.EXPORT_TENANT_WITNESS.value)); grant.active=False; session.commit()
+    assert api.post("/audit/exports",json={"resourceId":"account-1"},headers=headers("auditor","auditor","tenant-a")).status_code==403
+
+def test_v4_export_and_reports_deny_cross_resource_and_revoked_access(client):
+    api,engine=client
+    with Session(engine) as session:
+        begin_v4_write_transaction(session)
+        append_v4_audit_event(session,tenant_id="tenant-a",event_type="CLIENT_ACCOUNT_ACCESS",actor_id="shared",resource_type="customer_account",resource_id="account-2",payload={"operation":"READ","outcome":"SUCCESS"})
+        session.commit()
+    assert api.post("/audit/exports",json={"actorId":"shared"},headers=headers("auditor","auditor","tenant-a")).status_code==403
+    assert api.get("/audit/access-reports?from=2020-01-01T00:00:00Z&to=2030-01-01T00:00:00Z",headers=headers("regulator","regulator","tenant-a")).json()==[]
+    with Session(engine) as session:
+        grant=session.scalar(__import__("sqlalchemy").select(ResourceGrant).where(ResourceGrant.tenant_id=="tenant-a",ResourceGrant.permission==ResourcePermission.EXPORT_RESOURCE.value)); grant.active=False; session.commit()
+    assert api.post("/audit/exports",json={"resourceId":"account-1"},headers=headers("auditor","auditor","tenant-a")).status_code==403
+
+def test_v4_archive_filtering_occurs_before_pagination(client):
+    api,engine=client
+    with Session(engine) as session:
+        begin_v4_write_transaction(session)
+        old=append_v4_audit_event(session,tenant_id="tenant-a",event_type="CLIENT_ACCOUNT_ACCESS",actor_id="a",resource_type="customer_account",resource_id="account-1",payload={"operation":"READ","outcome":"SUCCESS"},timestamp=datetime.now(timezone.utc)-timedelta(days=2))
+        action=append_v4_audit_event(session,tenant_id="tenant-a",event_type="V4_EVENT_ARCHIVED",actor_id="admin",resource_type="customer_account",resource_id="account-1",payload={"eventRef":old.event_ref,"retentionDays":1})
+        session.add(V4AuditEventArchive(tenant_id="tenant-a",target_event_id=old.id,archive_action_event_id=action.id,archived_at=action.timestamp)); session.commit()
+    result=api.get("/audit/access-reports?from=2020-01-01T00:00:00Z&to=2030-01-01T00:00:00Z&includeArchived=false&limit=1",headers=headers("regulator","regulator","tenant-a"))
+    assert result.status_code==200 and result.json()==[]
 
 @pytest.mark.parametrize("key", ["", "bad key", "x" * 129])
 def test_v4_rejects_invalid_idempotency_keys_without_writes(client, key):
