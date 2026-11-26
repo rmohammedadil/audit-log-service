@@ -127,6 +127,7 @@ review.
 
 | Document | Purpose |
 | --- | --- |
+| [ATTESTATION.md](ATTESTATION.md) | Engineer-provided submission attestation |
 | [ENGINEERING_SUMMARY.md](ENGINEERING_SUMMARY.md) | Evaluator-facing summary |
 | [docs/architecture.md](docs/architecture.md) | High-level current architecture |
 | [docs/system-design.md](docs/system-design.md) | Low-level design and algorithms |
