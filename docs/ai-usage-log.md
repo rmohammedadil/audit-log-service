@@ -829,3 +829,11 @@ not represent approval or work that has not occurred.
   only the standard library despite importing `cryptography` for trusted
   Ed25519 verification. These comments do not change runtime behavior; they
   are recorded for a separate source-comment maintenance task.
+
+## Task 32.4–32.15 - Consolidated final engineering documentation
+
+- **AI contribution:** Created Scenario A/B/C guides, API reference, security threat model, walkthrough, practical examples, expanded testing evidence, requirements navigation, repository navigation, and engineering-summary documentation. The application remained feature-frozen.
+- **Evidence discipline:** Preserved the 341-test full regression baseline and the 24 selected acceptance tests as separate, non-additive evidence. Kept developer-confirmed CI success distinct from unavailable independently retrieved run/job logs. No invented screenshots, benchmark results, remote CI IDs, credentials, private keys, or production claims were added.
+- **Focused demonstration:** A disposable temporary-database `TestClient` run using temporary JWT configuration returned 201 for creation, 200 for an identical idempotent replay of the same ID, and 200/intact verification. It emitted the existing TestClient deprecation warning. Windows retained an empty temporary directory after SQLite cleanup; no project database, source, test, dependency, or credential file was changed.
+- **Documentation finding:** Existing README duplication/stale deferred statements and historical requirements future-tense wording are reconciled through current-state navigation rather than rewriting historical records. Source-comment drift from Task 32.3 remains outside documentation-only authority.
+- **Engineer review status:** Autonomous Task 32 documentation work is in progress; no later human approval is inferred.

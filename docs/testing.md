@@ -57,3 +57,22 @@ destructive validation; its SHA-256 baseline is
 - The prototype remains constrained by its same-database trust boundary,
   SQLite single-replica design, whole-chain memory use, absent migrations, and
   deferred production identity/secret-management infrastructure.
+
+## Test strategy and coverage inventory
+
+The 341-test final regression baseline is a single full-suite count. The 24 selected Task 31 acceptance tests are a subset selected from that coverage and must not be added to it. The suite uses isolated SQLite databases, dependency overrides, temporary credentials, and temporary signing keys where required.
+
+| Testing layer | Primary modules and representative coverage |
+| --- | --- |
+| Unit/schema/hash | `test_schemas.py`, `test_hashing.py`, `test_models.py`: aliases, input constraints, canonical JSON, fixed vectors, UTC persistence, constraints. |
+| Service/database | `test_audit_service.py`, `test_chain_verification.py`, `test_database.py`: append/query/verification, tampering precedence, checkpoints, preflight, locks, readiness. |
+| API/integration | `test_audit_routes.py`: JWT/RBAC, OpenAPI, creation, query, verify, lifecycle endpoints, reports, idempotency, sanitized errors, request logging. |
+| Lifecycle | `test_retention_service.py`, `test_redaction_service.py`: eligibility, atomicity, metadata integrity, masking, no-op behavior. |
+| Export/crypto | `test_export_service.py`: witness/digest, redaction/archive projection, Ed25519 signing, wrong key, downgrade and tamper rejection. |
+| Operational/security | Auth, request-ID/logging, SQLite write coordination, `compileall`, `pip check`, strict local `pip-audit`; Docker smoke coverage is developer-confirmed through CI. |
+
+The existing Starlette/TestClient deprecation warning is recorded, not hidden. No load/throughput benchmark, production monitoring test, or independently retrieved remote CI job log is claimed.
+
+## Task 32 focused documentation demonstration
+
+Task 32 executed a separate temporary-database FastAPI `TestClient` example using temporary in-process JWT configuration. It returned HTTP 201 for initial writer creation, HTTP 200 for an identical idempotent replay with the same ID, and HTTP 200 with `isIntact:true` for auditor verification. It emitted the existing TestClient deprecation warning. It was not a substitute for, nor added to, the recorded 341-test full regression baseline.

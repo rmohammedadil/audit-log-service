@@ -1,6 +1,8 @@
 
 # Audit Log Service — Requirements Analysis
 
+> **Task 32 status:** This document preserves recovered requirements, proposed decisions, and task-era design history. It is not the authority for current behavior. Use [architecture.md](architecture.md), [system-design.md](system-design.md), and the scenario guides for the current prototype. Assessment wording is recovered from supplied transcription, not independently verified original source material.
+
 ## 1. Objective
 
 Build a tamper-evident audit log service that records an append-only
@@ -623,3 +625,18 @@ Final acceptance uses a requirements-to-evidence matrix in `docs/testing.md`.
 It distinguishes automated local evidence, developer-confirmed remote CI, and
 checks whose detailed remote logs could not be retrieved. Acceptance does not
 alter the documented prototype limitations or claim production certification.
+
+## 32. Final implemented-behavior index
+
+The preserved sections above include historical future-tense plans that later became implemented. Their historical meaning has not been rewritten. For current behavior, use the following documentation.
+
+| Area | Current implementation record | Evidence record |
+| --- | --- | --- |
+| Scenario A | [scenario-a.md](scenarios/scenario-a.md) | [testing.md](testing.md) |
+| Scenario B | [scenario-b.md](scenarios/scenario-b.md) | [testing.md](testing.md) |
+| Scenario C | [scenario-c.md](scenarios/scenario-c.md) | [testing.md](testing.md) |
+| API/JWT/RBAC | [api-reference.md](api-reference.md) | Route/auth tests |
+| Algorithms/schema | [system-design.md](system-design.md) | Model/hash/verification tests |
+| Security boundaries | [security.md](security.md) | Security and operational test records |
+
+The final implementation is a functional prototype. It does not claim complete original-source provenance, production readiness, tamper-proof storage, regulatory certification, or independently retrieved remote CI logs.
