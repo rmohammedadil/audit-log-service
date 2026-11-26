@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import os
+import re
 from typing import Callable
 
 import jwt
@@ -14,6 +15,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 JWT_ALGORITHM = "HS256"
 ALLOWED_ROLES = frozenset({"writer", "auditor", "regulator", "admin"})
+_TENANT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -34,6 +36,15 @@ class AuthenticatedIdentity:
     roles: frozenset[str]
 
 
+@dataclass(frozen=True)
+class TenantAuthenticatedIdentity:
+    """V4 identity with a verified tenant claim; not used by legacy routes."""
+
+    subject: str
+    tenant_id: str
+    roles: frozenset[str]
+
+
 def jwt_configuration() -> JwtConfiguration:
     """Read explicit configuration; a short/shared default is never accepted."""
 
@@ -47,10 +58,18 @@ def jwt_configuration() -> JwtConfiguration:
     return JwtConfiguration(key, issuer, audience)
 
 
-def authenticate(
-    credentials: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
-) -> AuthenticatedIdentity:
-    """Validate a single explicitly configured HS256 bearer token."""
+def validate_tenant_id(value: object) -> str:
+    """Accept only one canonical tenant identifier; no fallback exists."""
+
+    if type(value) is not str or _TENANT_ID.fullmatch(value) is None:
+        raise ValueError("invalid tenant claim")
+    return value
+
+
+def _validated_claims(
+    credentials: HTTPAuthorizationCredentials | None,
+) -> tuple[str, frozenset[str], dict[str, object]]:
+    """Decode common JWT claims before legacy or V4 identity construction."""
 
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
@@ -73,8 +92,29 @@ def authenticate(
         role_set = frozenset(roles)
         if len(role_set) != len(roles) or not role_set <= ALLOWED_ROLES:
             raise ValueError("invalid roles")
-        return AuthenticatedIdentity(subject, role_set)
+        return subject, role_set, claims
     except (jwt.PyJWTError, JwtConfigurationError, KeyError, ValueError, TypeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token") from None
+
+
+def authenticate(
+    credentials: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
+) -> AuthenticatedIdentity:
+    """Validate legacy role-only JWTs for the existing V3 route boundary."""
+
+    subject, roles, _ = _validated_claims(credentials)
+    return AuthenticatedIdentity(subject, roles)
+
+
+def authenticate_v4(
+    credentials: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
+) -> TenantAuthenticatedIdentity:
+    """Validate V4 JWTs and reject every token without a valid tenant claim."""
+
+    subject, roles, claims = _validated_claims(credentials)
+    try:
+        return TenantAuthenticatedIdentity(subject, validate_tenant_id(claims.get("tenant_id")), roles)
+    except ValueError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token") from None
 
 
@@ -89,13 +129,40 @@ def require_roles(*permitted_roles: str) -> Callable[[AuthenticatedIdentity], Au
     return authorize
 
 
-def create_development_token(subject: str, roles: list[str], expires_minutes: int = 60) -> str:
+def require_v4_roles(
+    *permitted_roles: str,
+) -> Callable[[TenantAuthenticatedIdentity], TenantAuthenticatedIdentity]:
+    """Role gate for future V4 routes; it never accepts a legacy identity."""
+
+    def authorize(
+        identity: TenantAuthenticatedIdentity = Depends(authenticate_v4),
+    ) -> TenantAuthenticatedIdentity:
+        if not identity.roles.intersection(permitted_roles):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+        return identity
+
+    return authorize
+
+
+def create_development_token(
+    subject: str,
+    roles: list[str],
+    expires_minutes: int = 60,
+    *,
+    tenant_id: str | None = None,
+) -> str:
     """Create a locally signed test token; no HTTP issuance endpoint exists."""
 
     config = jwt_configuration()
     if not subject.strip() or not roles or set(roles) - ALLOWED_ROLES:
         raise ValueError("subject and roles are invalid")
+    if tenant_id is not None:
+        tenant_id = validate_tenant_id(tenant_id)
     now = datetime.now(timezone.utc)
-    return jwt.encode({"sub": subject, "roles": roles, "iss": config.issuer,
-                       "aud": config.audience, "iat": now, "exp": now + timedelta(minutes=expires_minutes)},
-                      config.signing_key, algorithm=JWT_ALGORITHM)
+    claims: dict[str, object] = {
+        "sub": subject, "roles": roles, "iss": config.issuer,
+        "aud": config.audience, "iat": now, "exp": now + timedelta(minutes=expires_minutes),
+    }
+    if tenant_id is not None:
+        claims["tenant_id"] = tenant_id
+    return jwt.encode(claims, config.signing_key, algorithm=JWT_ALGORITHM)

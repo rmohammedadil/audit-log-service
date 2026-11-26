@@ -924,3 +924,45 @@ record.
   assertions, and avoid claiming complete tenant isolation until every
   protected endpoint is integrated and tested. Production deployment and
   privileged database-administrator limitations remain unresolved.
+
+## Task 36A - Tenant and resource authorization foundation
+
+- **Engineer-approved scope:** Implement the V4 identity, explicit permission,
+  membership, grant, policy-service, and offline-administration foundation
+  without integrating existing HTTP routes or tenant hash chains.
+- **AI contribution:** Added centralized resource and tenant permission
+  definitions; a strict V4 tenant-aware JWT identity path; isolated
+  authorization metadata models; live deny-by-default membership and exact
+  grant checks; and an explicit-target offline grant CLI. The development token
+  CLI can issue a tenant claim for future V4 routes while legacy route tokens
+  remain isolated from the V4 authentication path.
+- **Isolation decision:** Authorization models use separate metadata and are
+  not registered on the existing V3 application `Base`. This prevents current
+  startup `create_all` behavior from adding authorization tables to historical
+  databases. The offline CLI accepts only an explicit fresh or compatible
+  authorization-foundation database and rejects legacy audit targets.
+- **Files created or modified:** `app/auth.py`, `app/generate_token.py`,
+  `app/permissions.py`, `app/authorization_models.py`,
+  `app/authorization_service.py`, `app/manage_grants.py`,
+  `tests/test_authorization_foundation.py`, and this file.
+- **Validation performed:** Compilation passed. Focused authorization and JWT
+  tests passed: 23 tests in 2.61 seconds. The complete regression suite using
+  a fresh external pytest temporary directory passed: 362 tests with one
+  existing Starlette `TestClient` deprecation warning in 47.74 seconds.
+- **Deferred components and limitations:** Existing HTTP endpoints still use
+  legacy role-only dependencies; V4 grants are not yet applied to routes,
+  queries, lifecycle operations, verification, exports, reports, idempotency,
+  or hash chains. The isolated grant CLI is not an integrated V4 application
+  database initializer. This transitional state must not be represented as
+  complete tenant isolation. Grant-administration deployment trust and
+  privileged database-administrator risk remain unresolved.
+- **Final security review and conditional approval:** The engineer reviewed the
+  Task 36A foundation. Review confirmed that V4 authentication rejects missing,
+  blank, malformed, and incorrectly typed tenant claims without legacy
+  fallback; common JWT validation remains intact; grants are tenant/subject/
+  resource/permission-specific and live; inactive grants and memberships deny;
+  admin/regulator roles do not bypass grants; and the isolated CLI rejects
+  incompatible legacy targets before writes. The previously recorded focused
+  and complete regression evidence remains valid. SEC-03 is not closed:
+  existing HTTP routes remain legacy role-only until later V4 stages integrate
+  and test every protected endpoint.
