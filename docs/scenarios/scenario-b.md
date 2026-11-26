@@ -1,5 +1,9 @@
 # Scenario B — Retention, Redaction and Independently Verifiable Audit Exports
 
+> **Runtime note:** the supported V4 application scopes retention, redaction,
+> exports, and lifecycle verification to the authenticated tenant and grants.
+> Historical V3 implementation detail remains for regression traceability.
+
 ## Requirements and interpretation
 
 The recovered assessment direction called for retention, sensitive-data

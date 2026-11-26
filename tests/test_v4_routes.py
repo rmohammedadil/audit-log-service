@@ -92,12 +92,45 @@ def test_v4_retention_is_tenant_scoped_and_hides_archived_events(client):
     api,engine=client
     with Session(engine) as session:
         begin_v4_write_transaction(session)
-        append_v4_audit_event(session,tenant_id="tenant-a",event_type="OLD",actor_id="advisor",resource_type="customer_account",resource_id="account-1",payload={},timestamp=datetime.now(timezone.utc)-timedelta(days=31))
-        append_v4_audit_event(session,tenant_id="tenant-b",event_type="OLD",actor_id="advisor",resource_type="customer_account",resource_id="account-1",payload={},timestamp=datetime.now(timezone.utc)-timedelta(days=31))
+        append_v4_audit_event(session,tenant_id="tenant-a",event_type="OLD",actor_id="advisor",resource_type="customer_account",resource_id="account-1",payload={},timestamp=datetime.now(timezone.utc)-timedelta(days=91))
+        append_v4_audit_event(session,tenant_id="tenant-b",event_type="OLD",actor_id="advisor",resource_type="customer_account",resource_id="account-1",payload={},timestamp=datetime.now(timezone.utc)-timedelta(days=91))
         session.commit()
     result=api.post("/audit/retention/run",headers=headers("admin","admin","tenant-a"))
     assert result.status_code==200 and result.json()["archivedEventCount"]==1
     assert api.get("/audit/events",headers=headers("auditor","auditor","tenant-a")).json()==[]
+
+
+def test_v4_default_retention_keeps_events_younger_than_ninety_days(client, monkeypatch):
+    """The route must use the shared 90-day default, not an independent value."""
+
+    api,engine=client
+    monkeypatch.delenv("AUDIT_RETENTION_DAYS", raising=False)
+    with Session(engine) as session:
+        begin_v4_write_transaction(session)
+        retained=append_v4_audit_event(session,tenant_id="tenant-a",event_type="MIDDLE_AGE",actor_id="advisor",resource_type="customer_account",resource_id="account-1",payload={},timestamp=datetime.now(timezone.utc)-timedelta(days=45))
+        archived=append_v4_audit_event(session,tenant_id="tenant-a",event_type="OLD",actor_id="advisor",resource_type="customer_account",resource_id="account-1",payload={},timestamp=datetime.now(timezone.utc)-timedelta(days=100))
+        retained_id,archived_id=retained.id,archived.id
+        session.commit()
+
+    response=api.post("/audit/retention/run",headers=headers("admin","admin","tenant-a"))
+    assert response.status_code==200 and response.json()=={"archivedEventCount":1}
+    with Session(engine) as session:
+        archived_ids=set(session.scalars(__import__("sqlalchemy").select(V4AuditEventArchive.target_event_id)))
+        assert archived_id in archived_ids and retained_id not in archived_ids
+
+
+def test_v4_explicit_retention_configuration_is_applied(client, monkeypatch):
+    api,engine=client
+    monkeypatch.setenv("AUDIT_RETENTION_DAYS","30")
+    with Session(engine) as session:
+        begin_v4_write_transaction(session)
+        event=append_v4_audit_event(session,tenant_id="tenant-a",event_type="OLD",actor_id="advisor",resource_type="customer_account",resource_id="account-1",payload={},timestamp=datetime.now(timezone.utc)-timedelta(days=45))
+        event_id=event.id
+        session.commit()
+
+    assert api.post("/audit/retention/run",headers=headers("admin","admin","tenant-a")).json()=={"archivedEventCount":1}
+    with Session(engine) as session:
+        assert event_id in set(session.scalars(__import__("sqlalchemy").select(V4AuditEventArchive.target_event_id)))
 
 def test_v4_lifecycle_tampering_fails_closed_and_reserved_events_are_rejected(client):
     api,engine=client; event=api.post("/audit/events",json={**EVENT,"payload":{"secret":"x"}},headers=headers("writer","writer","tenant-a")).json()

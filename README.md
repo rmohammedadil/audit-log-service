@@ -17,8 +17,9 @@ storage, regulatory certification, or complete capture of external access.
 - Self-contained exports, canonical bundle digests, optional Ed25519 signatures,
   and database-independent verification.
 - Explicit recorded client-account access reports.
-- HS256 JWT authentication, endpoint RBAC, safe request IDs/logging, readiness,
-  SQLite write coordination, Docker/Compose, and CI configuration.
+- Tenant-aware HS256 JWT authentication, deny-by-default resource and tenant
+  grants, safe request IDs/logging, readiness, SQLite write coordination,
+  Docker/Compose, and CI configuration.
 
 ## Quick start
 
@@ -31,7 +32,7 @@ commands.
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-$env:AUDIT_DB_PATH = "C:/Charles_Schwab/audit-demo/audit.db"
+$env:AUDIT_V4_DB_PATH = "C:/Charles_Schwab/audit-demo/audit-v4.db"
 $env:AUDIT_JWT_SIGNING_KEY = "replace-with-a-unique-local-secret-at-least-32-characters"
 $env:AUDIT_JWT_ISSUER = "audit-local"
 $env:AUDIT_JWT_AUDIENCE = "audit-api"
@@ -44,16 +45,22 @@ python -m uvicorn app.main:app --reload
 py -3.12 -m venv .venv
 source .venv/Scripts/activate
 python -m pip install -r requirements.txt
-export AUDIT_DB_PATH="C:/Charles_Schwab/audit-demo/audit.db"
+export AUDIT_V4_DB_PATH="C:/Charles_Schwab/audit-demo/audit-v4.db"
 export AUDIT_JWT_SIGNING_KEY="replace-with-a-unique-local-secret-at-least-32-characters"
 export AUDIT_JWT_ISSUER="audit-local"
 export AUDIT_JWT_AUDIENCE="audit-api"
 python -m uvicorn app.main:app --reload
 ```
 
-`AUDIT_DB_PATH` defaults to relative `audit_log_v3.db` only when unset; an
-explicit empty/whitespace value is rejected. Use a fresh V3 path for local
-work. Do not use or migrate the historical `audit_log.db`.
+`AUDIT_V4_DB_PATH` is mandatory for the supported application. It must name a
+fresh V4 SQLite database or an already complete V4 database. Startup rejects a
+missing, legacy, partial, or incompatible database; it never falls back to
+`AUDIT_DB_PATH`, migrates V3 evidence, or changes the historical
+`audit_log.db`.
+
+`AUDIT_RETENTION_DAYS` is validated once at startup and read through the same
+shared policy for each retention run. Its default is 90 days; set it explicitly
+for reproducible local demonstrations.
 
 Open:
 
@@ -63,36 +70,59 @@ Open:
 
 ## Local authentication
 
-Generate a temporary token only after configuring the same JWT variables:
+Provision an active tenant membership and exact permissions through the trusted
+offline CLI, then generate a temporary tenant-aware token. These examples use
+only fictional local identities and a fresh V4 database:
 
 ```bash
-python -m app.generate_token --subject writer-demo --role writer
+python -m app.manage_grants --database "$AUDIT_V4_DB_PATH" principal-add --tenant tenant-demo --subject writer-demo
+python -m app.manage_grants --database "$AUDIT_V4_DB_PATH" resource-grant --tenant tenant-demo --subject writer-demo --resource-type customer_account --resource-id account-demo-001 --permission CREATE_EVENT
+python -m app.generate_token --subject writer-demo --role writer --tenant-id tenant-demo
 ```
 
-Use it as `Authorization: Bearer <token>`. Roles are writer (create), auditor
-(query/verify/export), regulator (access report/verify), and admin
-(query/verify/export/retention/redaction). The JWT subject is the API caller;
-the event `actorId` remains a business assertion from a trusted writer.
+PowerShell uses the same CLI with `$env:AUDIT_V4_DB_PATH`, for example:
+
+```powershell
+python -m app.manage_grants --database $env:AUDIT_V4_DB_PATH principal-add --tenant tenant-demo --subject auditor-demo
+python -m app.manage_grants --database $env:AUDIT_V4_DB_PATH resource-grant --tenant tenant-demo --subject auditor-demo --resource-type customer_account --resource-id account-demo-001 --permission READ_EVENT
+python -m app.generate_token --subject auditor-demo --role auditor --tenant-id tenant-demo
+```
+
+PowerShell uses the same CLI with `$env:AUDIT_V4_DB_PATH`, for example:
+
+```powershell
+python -m app.manage_grants --database $env:AUDIT_V4_DB_PATH principal-add --tenant tenant-demo --subject auditor-demo
+python -m app.manage_grants --database $env:AUDIT_V4_DB_PATH resource-grant --tenant tenant-demo --subject auditor-demo --resource-type customer_account --resource-id account-demo-001 --permission READ_EVENT
+python -m app.generate_token --subject auditor-demo --role auditor --tenant-id tenant-demo
+```
+
+The token must contain a verified `tenant_id`, `sub`, role list, issuer,
+audience, and expiration. Role membership is necessary but insufficient: every
+operation also requires active tenant membership and the exact resource or
+tenant permission. Revoke a grant with `resource-revoke` or `tenant-revoke`;
+subsequent calls and idempotent replays are denied. The JWT subject is the API
+caller; the event `actorId` remains a business assertion from a trusted writer.
 
 ## API overview
 
 | Endpoint | Role | Purpose |
 | --- | --- | --- |
-| `POST /audit/events` | writer | Create event; optional `Idempotency-Key` |
-| `GET /audit/events` | auditor/admin | List verified, redacted audit evidence |
-| `GET /audit/verify` | auditor/regulator/admin | Verify full evidence chain |
-| `POST /audit/retention/run` | admin | Apply configured logical archival |
-| `POST /audit/events/{eventId}/redact` | admin | Add redaction overlay |
-| `POST /audit/exports` | auditor/admin | Create verified export bundle |
-| `GET /audit/access-reports` | regulator | Report recorded account access |
+| `POST /audit/events` | writer + `CREATE_EVENT` | Create tenant event; optional `Idempotency-Key` |
+| `GET /audit/events` | read-capable role + `READ_EVENT` | List authorized, redacted evidence |
+| `GET /audit/verify` | permitted role + `VERIFY_TENANT_CHAIN` | Verify the caller's tenant chain |
+| `POST /audit/retention/run` | admin + `RUN_RETENTION` | Apply tenant logical archival |
+| `POST /audit/events/{eventRef}/redact` | admin + `REDACT_EVENT` | Add a tenant-scoped redaction overlay |
+| `POST /audit/exports` | auditor/admin + `EXPORT_RESOURCE` and `EXPORT_TENANT_WITNESS` | Create a scoped export bundle |
+| `GET /audit/access-reports` | regulator + `READ_ACCESS_REPORT` | Report authorized recorded account access |
 
 See [docs/api-reference.md](docs/api-reference.md) for headers, request bodies,
 query parameters, status codes, and examples.
 
 ## Run tests
 
-The recorded final regression baseline is 341 tests with one existing
-TestClient deprecation warning. Use the project virtual environment:
+The latest recorded cutover regression is 428 passing tests with one existing
+TestClient deprecation warning. This is a single full-suite count, not a
+coverage percentage. Use the project virtual environment:
 
 ```bash
 python -m pytest -q
@@ -113,10 +143,12 @@ configuration.
 ## Docker and CI
 
 Copy `.env.example` to an untracked `.env`, replace its local JWT placeholders,
-then run `docker compose up --build`. Compose persists SQLite in named
-`audit-data`; use `docker compose down` to preserve it and `down -v` only for
-disposable data. Optional signing uses `compose.signing.yaml` with a private
-PEM outside the repository.
+then run `docker compose up --build`. Compose starts `app.main:app` with
+`AUDIT_V4_DB_PATH=/var/lib/audit-v4/audit_log_v4.db` on the named
+`audit-v4-data` volume. It does not open or migrate V3 volumes. Use `docker
+compose down` to preserve V4 evidence and `down -v` only for disposable V4
+data. Optional signing uses `compose.signing.yaml` with a private PEM outside
+the repository.
 
 GitHub Actions is configured for regression, strict dependency scan, and Docker
 smoke checks. The developer confirmed a successful post-remediation run; its
@@ -142,11 +174,12 @@ review.
 
 ## Known limitations
 
-The checkpoint and lifecycle metadata share the application database; a
-privileged coordinated rewrite can evade detection. Redaction masks views but
-does not erase originals/backups. SQLite is a single-node design with no
-distributed coordination or full-chain scalability evidence. JWT rotation,
-revocation, external identity integration, managed key services, migrations,
-production monitoring, and regulatory certification are not implemented. See
-[security.md](docs/security.md) and [system-design.md](docs/system-design.md)
-for detailed boundaries.
+The tenant checkpoint, grants, and lifecycle metadata share the application
+database; a privileged coordinated rewrite can evade detection. Redaction
+masks views but does not erase originals/backups. Historical V3 evidence is
+not migrated. SQLite is a single-node design with no distributed coordination
+or full-chain scalability evidence. JWT rotation, external identity
+integration, managed key services, migrations, production monitoring, and
+regulatory certification are not implemented. Docker runtime validation remains
+pending on a Docker-capable runner. See [security.md](docs/security.md) and
+[system-design.md](docs/system-design.md) for detailed boundaries.

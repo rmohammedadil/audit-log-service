@@ -3,11 +3,12 @@
 ## Executive summary
 
 Audit Log Service is a Python/FastAPI functional prototype built for an audit
-logging assessment. It records structured events, detects ordinary direct
-tampering, supports lifecycle retention/redaction, produces independently
-verifiable export bundles, reports explicitly recorded account access, and
-protects audit endpoints with JWT/RBAC. It is not presented as production-ready,
-tamper-proof, or regulatory-certified.
+logging assessment. The supported runtime is a tenant-scoped V4 FastAPI
+application: it records structured events, detects ordinary direct tampering,
+supports lifecycle retention/redaction, produces independently verifiable
+export bundles, reports explicitly recorded account access, and protects audit
+endpoints with tenant-aware JWTs and explicit grants. It is not presented as
+production-ready, tamper-proof, or regulatory-certified.
 
 ## Problem and implemented scope
 
@@ -28,7 +29,7 @@ and dependency scanning.
 | Linked chain plus checkpoint | Detects changed predecessor evidence and tail deletion; checkpoint records expected count/head. |
 | SQLite and modular monolith | Simple, inspectable prototype with isolated tests; intentionally limited to a single-node model. |
 | Logical archival/redaction overlays | Preserve original evidence while hiding selected values in projections. |
-| JWT/RBAC | Enforces endpoint-specific roles without treating business actorId as caller identity. |
+| Tenant JWT plus grants | Requires verified tenant identity, active membership, and exact resource/tenant grants without treating business actorId as caller identity. |
 | Idempotency mapping | Writer-scoped retry safety with event/checkpoint mapping committed atomically. |
 | Bundle digest plus optional Ed25519 | Offline consistency verification and optional trusted-key signer assurance. |
 
@@ -54,9 +55,10 @@ accesses were logged. JWT roles are writer, auditor, regulator, and admin.
 
 ## Validation and evidence
 
-The final recorded local regression baseline is 341 tests with one existing
-TestClient deprecation warning. The 24 selected Task 31 acceptance tests are a
-subset of that suite, not an additional count. Recorded checks include
+The latest recorded cutover regression is 428 passing tests with one existing
+TestClient deprecation warning. Earlier 24 selected Task 31 acceptance tests
+were a subset of the then-current suite, not an additional count. Recorded
+checks include
 `compileall`, `pip check`, and strict local `pip-audit` with no known
 vulnerabilities. The developer confirmed a successful post-remediation GitHub
 Actions run; Task 31 could not independently retrieve its run ID or job logs.

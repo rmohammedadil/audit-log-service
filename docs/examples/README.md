@@ -1,6 +1,11 @@
 # Practical Examples
 
-These guides use fictional data and disposable environments. They complement the [walkthrough](../walkthrough.md), [API reference](../api-reference.md), and [system design](../system-design.md); automated evidence remains in [testing.md](../testing.md).
+These guides use fictional data and disposable environments. The supported
+runtime is V4: follow the [walkthrough](../walkthrough.md) for mandatory
+`AUDIT_V4_DB_PATH`, tenant-aware tokens, and explicit grants. Older snippets
+that refer to `AUDIT_DB_PATH`, numeric IDs, or role-only access are historical
+examples, not V4 startup instructions. Automated evidence remains in
+[testing.md](../testing.md).
 
 | Guide | Focus |
 | --- | --- |

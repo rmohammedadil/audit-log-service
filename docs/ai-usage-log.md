@@ -1081,3 +1081,81 @@ record.
   route/export/verifier and legacy export tests passed: 46 tests with one
   existing warning in 9.46 seconds. Final persisted regression recorded 412
   passed tests, the same warning, and exit code 0 in 54.99 seconds.
+
+## Task 36F - Secure V4 application integration and cutover
+
+- **AI contribution:** Replaced the supported `app.main:app` entry point with a
+  clean V4-only import, retained the committed V3 application in
+  `tests/legacy_app.py` solely for historical regression coverage, and removed
+  the production `app.legacy_main` module. The remaining historical database
+  initializer tests were corrected to import the test-local fixture rather than
+  the V4 entry point.
+- **Operational correction:** The V4 operational middleware accepts only a
+  bounded safe caller-provided request ID and generates a new ID for missing or
+  malformed values. It returns the request ID on normal and sanitized error
+  responses. V4 startup requires an explicit nonblank `AUDIT_V4_DB_PATH` and
+  does not fall back to `AUDIT_DB_PATH`.
+- **Deployment and CI contribution:** Updated Docker/Compose to use the
+  separate non-root-owned `/var/lib/audit-v4/audit_log_v4.db` location and
+  `audit-v4-data` volume. Updated CI configuration and its smoke script for
+  tenant-aware tokens, trusted offline grant provisioning, V4 opaque event
+  references, scoped verification, denial checks, persistence recreation, and
+  masked ephemeral credentials.
+- **Validation performed:** Focused default-entry-point integration tests
+  passed: 6 tests with one existing TestClient deprecation warning. The complete
+  persisted regression passed: 428 tests with the same warning and exit code 0.
+  `compileall`, `pip check`, and `git diff --check` passed; the historical
+  `audit_log.db` checksum remained unchanged. Static Compose/workflow checks and
+  Git Bash shell syntax passed.
+- **Limitations:** Docker CLI, actionlint, and ShellCheck were unavailable in
+  the local environment. Docker build, Compose runtime, and smoke execution are
+  therefore pending a Docker-capable runner. This entry records implementation
+  and validation only; no engineer approval or commit is claimed here. During
+  documentation command-consistency review, the V4 retention route's unset
+  fallback was observed as 30 days while the shared validation helper and
+  Compose default are 90 days. No code change was authorized in this
+  documentation task; current instructions therefore require explicitly setting
+  `AUDIT_RETENTION_DAYS` rather than claiming one runtime default.
+
+### Task 36F.3D - retention configuration consistency correction
+
+- **Correction:** Replaced the V4 route's independent `30`-day environment
+  fallback with the existing shared `configured_retention_days()` function.
+  Startup validation and every V4 retention execution now use the same bounded
+  policy and documented 90-day default.
+- **Regression coverage:** Added V4 route tests showing that a 45-day event is
+  retained while a 100-day event is archived under an unset configuration, and
+  that an explicit 30-day policy archives a 45-day event. Existing operational
+  startup coverage continues to assert invalid retention configuration fails
+  closed. Focused V4 route, operational, and retention-service validation
+  passed: 43 tests with one existing TestClient deprecation warning.
+
+### Task 36F.4 - final V4 integration validation
+
+- **Automated validation:** The complete suite ran with an external disposable
+  pytest base directory and persisted output: 430 tests passed with one existing
+  TestClient deprecation warning and exit code 0. Coverage reports were produced
+  by the configured test run: 87.39% line coverage and 79.24% branch coverage.
+  The run also checked the default V4 entry point,
+  historical V3 test fixture isolation, retention-policy correction, and V4
+  authorization/integrity coverage.
+- **Live-validation limitation:** A fresh external V4 database, temporary
+  Ed25519 keys, and ephemeral JWT configuration started `app.main:app` under
+  Uvicorn successfully; root operational startup reached readiness. The
+  disposable Windows PowerShell/curl harness then serialized JSON request bodies
+  incorrectly, yielding FastAPI's expected malformed-JSON 422 before the
+  authentication path. No application defect was established and the planned
+  authenticated live request matrix was not claimed complete. Docker runtime
+  validation also remains unavailable locally.
+- **Completed HTTP correction:** The incomplete PowerShell/curl attempt was
+  replaced by a disposable Python/httpx validator using native JSON request
+  serialization, explicit timeouts, subprocess-managed Uvicorn/CLI commands,
+  and cleanup. Its sanitized external report recorded 22 passing operations:
+  operational endpoints/OpenAPI, missing and legacy-token 401 responses,
+  creation, idempotent replay/conflict, scoped retrieval, cross-tenant and
+  cross-resource isolation, verification, retention, redaction and masked
+  retrieval, signed export, trusted offline verification, compliance reporting,
+  and revoked-grant denial. Temporary database, keys, tokens, bundle, server,
+  and validator artifacts were kept outside the repository and cleanup was
+  requested after shutdown. This is local Uvicorn evidence only; Docker runtime
+  validation remains unavailable.

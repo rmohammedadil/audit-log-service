@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import Base, get_db
 from app.api import audit_routes
-from app.main import app
+from tests.legacy_app import app
 from app.models import AuditChainState, AuditEvent, AuditEventArchive, AuditEventRedaction, AuditEventIdempotency
 from app.services import audit_service, retention_service
 from app.services.audit_service import (

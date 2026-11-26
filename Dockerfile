@@ -8,8 +8,8 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
     && addgroup --system audit \
     && adduser --system --ingroup audit --home /app audit \
-    && mkdir -p /var/lib/audit \
-    && chown -R audit:audit /app /var/lib/audit
+    && mkdir -p /var/lib/audit-v4 \
+    && chown -R audit:audit /app /var/lib/audit-v4
 
 COPY --chown=audit:audit app ./app
 USER audit

@@ -3,6 +3,21 @@
 This document records test evidence for the functional prototype. It does not
 claim production readiness, tamper-proof storage, or regulatory certification.
 
+## Task 36F cutover evidence
+
+- The latest complete local cutover regression passed **428 tests** with one
+  existing Starlette/TestClient deprecation warning. This supersedes earlier
+  historical suite counts; counts are not additive.
+- It included historical V3 regression tests through `tests/legacy_app.py` and
+  active V4 authorization, persistence, lifecycle, export, verifier,
+  operational, and default-entry-point tests.
+- `compileall`, `pip check`, and `git diff --check` passed during cutover
+  validation. The historical `audit_log.db` checksum remained
+  `B0401EBDF6E7A1A65B9E6CB4667A7E0A64D12A94D5D28E8AD3755FC5A2DCC96A`.
+- Docker runtime smoke execution remains pending because Docker was unavailable
+  locally. Static Compose/workflow and Git Bash syntax checks are not a Docker
+  runtime result.
+
 ## Evidence status
 
 - Local commit and `origin/main` both resolve to

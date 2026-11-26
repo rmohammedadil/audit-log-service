@@ -24,6 +24,28 @@ code, especially `app/services/audit_service.py`, `app/api/audit_routes.py`,
 [the AI usage log](ai-usage-log.md). Actual validation evidence is in
 [testing.md](testing.md).
 
+> **Current runtime note:** the supported application is the V4 tenant-scoped
+> entry point in `app.main`. The V3 implementation detail retained in Sections
+> 2–24 is historical design material for legacy regression tests, not the
+> supported runtime contract. Current V4 authorization/persistence design is in
+> [authorization-design.md](authorization-design.md) and current route behavior
+> is in [api-reference.md](api-reference.md).
+
+### Current V4 initialization
+
+`AUDIT_V4_DB_PATH` is mandatory. `app.v4_main.create_v4_app()` preflights that
+exact target and accepts only a fresh or complete V4 schema; it rejects missing,
+legacy, partial, and incompatible targets before V4 schema mutation. It never
+uses `AUDIT_DB_PATH` as a fallback and does not migrate historical V3 evidence.
+V4 events bind tenant ID and opaque `eventRef` into their canonical content and
+each tenant has an independent chain/checkpoint. The supported request path
+requires a verified tenant JWT, active membership, and exact grants; the
+historical V3 ASGI fixture is `tests/legacy_app.py` only.
+
+V4 retention calls the shared `configured_retention_days()` policy used at
+startup. The default is 90 days; explicit values must be bounded positive
+integers. A malformed value fails startup and no retention run is performed.
+
 ## 2. Application initialization and configuration
 
 `app/main.py` creates the FastAPI application, registers the audit router, and

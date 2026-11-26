@@ -7,7 +7,7 @@ from sqlalchemy import Engine, create_engine, inspect
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app import main as application_main
+from tests import legacy_app as application_main
 from app import models  # Registers V3 models with the shared declarative base.
 from app.database import (
     DEFAULT_AUDIT_DB_PATH,

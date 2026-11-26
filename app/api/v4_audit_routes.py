@@ -1,7 +1,6 @@
 """Isolated V4 tenant-scoped event API; legacy routes are never mounted here."""
 from __future__ import annotations
 from typing import Annotated
-import os
 from datetime import datetime, timezone
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy import Engine, select, tuple_
@@ -16,6 +15,7 @@ from app.v4_models import V4AuditEvent, V4AuditEventArchive, V4AuditEventIdempot
 from app.v4_schemas import V4AuditEventCreate, V4AuditEventRead, V4ExportRequest
 from app.schemas import RedactionRequest
 from app.services.audit_service import ACCESS_OPERATIONS, ACCESS_OUTCOMES, CLIENT_ACCOUNT_ACCESS, ACCESS_RESOURCE_TYPE, is_canonical_access_payload
+from app.services.retention_service import configured_retention_days
 from app.services.v4_export_service import create_v4_export
 
 router=APIRouter(prefix="/audit", tags=["v4-audit"])
@@ -86,7 +86,8 @@ def build_v4_router(engine: Engine) -> APIRouter:
             begin_v4_write_transaction(session)
             require_tenant_grant(session,identity,permission=TenantPermission.RUN_RETENTION)
             _safe_integrity(session,identity.tenant_id)
-            days=int(os.environ.get("AUDIT_RETENTION_DAYS","30"))
+            # Read the same validated process policy checked at application startup.
+            days=configured_retention_days()
             count=archive_v4_events(session,tenant_id=identity.tenant_id,retention_days=days,operator=identity.subject)
             session.commit(); return {"archivedEventCount":count}
         except AuthorizationDeniedError: session.rollback(); raise HTTPException(403,"Insufficient permissions") from None

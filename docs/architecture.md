@@ -1,6 +1,34 @@
 
 # Current High-Level Architecture
 
+> **Current runtime architecture (Task 36F):** `app.main:app` is V4-only. It
+> requires `AUDIT_V4_DB_PATH`, accepts only fresh/complete V4 persistence, and
+> mounts the seven tenant-scoped audit operations. V3 code survives only in
+> `tests/legacy_app.py` as a historical regression fixture; it is not an ASGI
+> application in the production package. The detailed V3 material below is a
+> historical design record unless explicitly marked V4.
+
+## Current V4 component and deployment boundary
+
+V4 validates tenant-aware JWT claims, active `(tenant_id, subject)` membership,
+and exact grants before evidence release. Each tenant has an independent hash
+chain, checkpoint, local sequence, and opaque public `eventRef`. Resource
+authorization precedes filtering and pagination; tenant-wide verification,
+retention, and witness export require distinct tenant permissions. The supported
+container runs `app.main:app` as non-root and persists only
+`/var/lib/audit-v4/audit_log_v4.db` on Compose's `audit-v4-data` volume. V4
+startup rejects V3, partial, missing, and incompatible databases without
+migration or fallback to `AUDIT_DB_PATH`.
+
+```mermaid
+flowchart LR
+    JWT[Tenant JWT: sub, tenant_id, roles] --> API[app.main:app / V4]
+    API --> Grants[Active membership + exact grants]
+    Grants --> Routes[Seven scoped audit routes]
+    Routes --> V4DB[(V4 SQLite: tenant chains/checkpoints)]
+    V4DB --> Witness[V4 export witness / offline verifier]
+```
+
 ## 1. Introduction
 
 Audit Log Service is a Python/FastAPI functional prototype for recording,
@@ -194,16 +222,18 @@ immutability.
 
 The service runs natively with Python/Uvicorn or through Docker Compose. The
 container uses Python 3.12 slim, one Uvicorn worker, and non-root `audit` user.
-Compose stores `/var/lib/audit/audit_log_v3.db` on named `audit-data`; required
-runtime settings are JWT key, issuer, and audience. The optional signing
-override mounts a private key read-only.
+The supported Compose deployment stores
+`/var/lib/audit-v4/audit_log_v4.db` on named `audit-v4-data`; required runtime
+settings are the JWT key, issuer, audience, and explicit V4 database path.
+The optional signing override mounts a private key read-only. It never opens or
+migrates a V3 volume.
 
 ```mermaid
 flowchart TB
     Operator[Developer or operator] --> Compose[Docker Compose]
     Compose --> Container[Non-root audit-log-service container]
     Container --> API[Uvicorn / FastAPI :8000]
-    Container --> Volume[(audit-data volume / SQLite V3)]
+    Container --> Volume[(audit-v4-data volume / SQLite V4)]
     Key[Optional private PEM] -. read-only mount .-> Container
     Probe[Compose health check] --> API
 ```

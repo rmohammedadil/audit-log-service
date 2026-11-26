@@ -1,7 +1,13 @@
 
 # Audit Log Service — Requirements Analysis
 
-> **Task 32 status:** This document preserves recovered requirements, proposed decisions, and task-era design history. It is not the authority for current behavior. Use [architecture.md](architecture.md), [system-design.md](system-design.md), and the scenario guides for the current prototype. Assessment wording is recovered from supplied transcription, not independently verified original source material.
+> **Current runtime note (Task 36F):** The supported application is tenant-scoped
+> V4 and requires `AUDIT_V4_DB_PATH`; it does not run or migrate V3 evidence.
+> This document otherwise preserves recovered requirements, proposed decisions,
+> and task-era design history. It is not the authority for current behavior. Use
+> [architecture.md](architecture.md), [system-design.md](system-design.md), and
+> the scenario guides for the current prototype. Assessment wording is recovered
+> from supplied transcription, not independently verified original source material.
 
 ## 1. Objective
 

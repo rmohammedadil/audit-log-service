@@ -22,15 +22,22 @@ regulatory certification.
 
 ## Authentication and authorization
 
-`app/auth.py` accepts only configured HS256 tokens with valid `exp`, `sub`,
-`iss`, `aud`, and unique roles selected from writer, auditor, regulator, and
-admin. The exact endpoint matrix is in [api-reference.md](api-reference.md).
-The JWT subject identifies the caller. `actorId` is a business assertion from a
-trusted writer, not proof that the subject is that business actor.
+The supported V4 application accepts only configured HS256 tokens with valid
+`exp`, `sub`, `iss`, `aud`, a canonical `tenant_id`, and unique roles selected
+from writer, auditor, regulator, and admin. The exact endpoint matrix is in
+[api-reference.md](api-reference.md). The JWT subject identifies the caller;
+`actorId` is a business assertion from a trusted writer, not proof that the
+subject is that business actor. A valid role is not authorization by itself:
+the caller must have active membership for that tenant and the exact active
+resource or tenant permission. There is no V4 wildcard, default tenant, or
+admin-role bypass.
 
 Missing, malformed, expired, wrongly signed, wrong issuer/audience, or invalid
-role tokens return 401. An authenticated caller without route permission gets
-403. Local development-token generation has no HTTP token-issuance endpoint.
+role or tenant claims return 401. An authenticated caller without active
+membership or the required grant gets 403 (or an empty scoped list where that
+avoids resource disclosure). Local development-token generation has no HTTP
+token-issuance endpoint. Grant changes are trusted offline administration;
+revoked grants block subsequent requests and idempotent replay.
 
 ## Threat matrix
 

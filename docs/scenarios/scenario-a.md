@@ -1,5 +1,9 @@
 # Scenario A — Core Audit Logging and Tamper Detection
 
+> **Runtime note:** Scenario A records are preserved as historical V3 evidence.
+> The supported application now applies the same integrity goals through V4
+> tenant-scoped chains; see [api-reference.md](../api-reference.md).
+
 ## Requirements and provenance
 
 Scenario A is reconstructed from the assessment transcription supplied during

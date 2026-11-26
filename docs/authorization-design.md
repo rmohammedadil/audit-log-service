@@ -2,10 +2,12 @@
 
 ## Status and scope
 
-This Task 35 architecture is approved by the engineer as the required design
-for future implementation. It is not implemented or validated by the current
-application. Current role-based access control does not establish tenant,
-account, or resource ownership.
+This Task 35 architecture was the approved design for V4. Task 36F has made
+the supported `app.main:app` entry point tenant-scoped: it requires a tenant
+claim, active membership, and exact grants for all seven supported operations.
+The earlier planning language below is retained as historical design evidence.
+This does not claim that privileged database administration, deployment trust,
+or external identity governance are solved.
 
 The proposal retains SQLite for the prototype, uses a fresh V4 database, and
 does not alter existing database files, historical event hashes, or chain

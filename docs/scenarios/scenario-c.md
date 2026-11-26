@@ -1,5 +1,9 @@
 # Scenario C — Regulatory Client Account Access Reporting
 
+> **Runtime note:** V4 access reporting requires tenant-aware regulator
+> authentication and exact `READ_ACCESS_REPORT` grants before filtering or
+> pagination. This scenario still covers recorded events only.
+
 ## Requirement clarification and provenance
 
 The available original requirement is intentionally brief: “Regulators need to
