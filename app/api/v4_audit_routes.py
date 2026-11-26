@@ -1,17 +1,19 @@
 """Isolated V4 tenant-scoped event API; legacy routes are never mounted here."""
 from __future__ import annotations
 from typing import Annotated
+import os
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy import Engine, select, tuple_
 from sqlalchemy.orm import Session
 from app.auth import TenantAuthenticatedIdentity, require_v4_roles
 from app.authorization_models import ResourceGrant
-from app.authorization_service import AuthorizationDeniedError, active_tenant_principal, require_resource_grant
-from app.permissions import ResourcePermission
-from app.services.v4_audit_service import V4IdempotencyConflictError, append_v4_audit_event, begin_v4_write_transaction, find_v4_replay, v4_request_fingerprint, verify_v4_tenant_chain
+from app.authorization_service import AuthorizationDeniedError, active_tenant_principal, require_resource_grant, require_tenant_grant
+from app.permissions import ResourcePermission, TenantPermission
+from app.services.v4_audit_service import V4IdempotencyConflictError, V4IntegrityError, append_v4_audit_event, archive_v4_events, begin_v4_write_transaction, find_v4_replay, redact_v4_event, v4_redacted_payload, v4_request_fingerprint, verify_v4_lifecycle, verify_v4_tenant_chain
 from app.v4_database_dependency import get_v4_db
-from app.v4_models import V4AuditEvent, V4AuditEventIdempotency
+from app.v4_models import V4AuditEvent, V4AuditEventArchive, V4AuditEventIdempotency
 from app.v4_schemas import V4AuditEventCreate, V4AuditEventRead
+from app.schemas import RedactionRequest
 
 router=APIRouter(prefix="/audit", tags=["v4-audit"])
 def _key(value: str | None) -> str | None:
@@ -22,7 +24,7 @@ def _session(engine: Engine):
     def dependency(): yield from get_v4_db(engine)
     return dependency
 def _safe_integrity(session: Session, tenant: str) -> None:
-    if not verify_v4_tenant_chain(session,tenant).is_intact: raise HTTPException(409,"Audit integrity verification failed")
+    if not verify_v4_tenant_chain(session,tenant).is_intact or not verify_v4_lifecycle(session,tenant): raise HTTPException(409,"Audit integrity verification failed")
 
 def build_v4_router(engine: Engine) -> APIRouter:
     api=APIRouter(prefix="/audit", tags=["v4-audit"])
@@ -30,18 +32,20 @@ def build_v4_router(engine: Engine) -> APIRouter:
     @api.post("/events", response_model=V4AuditEventRead, status_code=201)
     def create_event(body: V4AuditEventCreate, response: Response, identity: Annotated[TenantAuthenticatedIdentity, Depends(require_v4_roles("writer"))], session: Session=db, idempotency_key: Annotated[str|None,Header(alias="Idempotency-Key")]=None):
         key=_key(idempotency_key)
+        if body.event_type.startswith("V4_EVENT_"): raise HTTPException(422,"eventType is reserved for internal lifecycle operations")
         try:
             begin_v4_write_transaction(session)
             require_resource_grant(session,identity,resource_type=body.resource_type,resource_id=body.resource_id,permission=ResourcePermission.CREATE_EVENT)
             fingerprint=v4_request_fingerprint(body.event_type,body.actor_id,body.resource_type,body.resource_id,body.payload)
             replay=find_v4_replay(session,identity.tenant_id,identity.subject,key,fingerprint) if key else None
             if replay is not None:
-                _safe_integrity(session,identity.tenant_id); session.commit(); response.status_code=200; return V4AuditEventRead.model_validate(replay)
+                _safe_integrity(session,identity.tenant_id); payload,_=v4_redacted_payload(session,replay); session.commit(); response.status_code=200; return V4AuditEventRead.model_validate(replay).model_copy(update={"payload":payload})
             event=append_v4_audit_event(session,tenant_id=identity.tenant_id,event_type=body.event_type,actor_id=body.actor_id,resource_type=body.resource_type,resource_id=body.resource_id,payload=body.payload)
             if key: session.add(V4AuditEventIdempotency(tenant_id=identity.tenant_id,writer_subject=identity.subject,idempotency_key=key,request_fingerprint=fingerprint,event_id=event.id))
             session.commit(); return V4AuditEventRead.model_validate(event)
         except AuthorizationDeniedError: session.rollback(); raise HTTPException(403,"Insufficient permissions") from None
         except V4IdempotencyConflictError: session.rollback(); raise HTTPException(409,"Idempotency key conflicts with a different request") from None
+        except V4IntegrityError: session.rollback(); raise HTTPException(409,"Audit integrity verification failed") from None
         except HTTPException: session.rollback(); raise
         except Exception: session.rollback(); raise HTTPException(500,"Audit event creation failed") from None
     @api.get("/events", response_model=list[V4AuditEventRead])
@@ -54,8 +58,35 @@ def build_v4_router(engine: Engine) -> APIRouter:
             if resource_id: statement=statement.where(V4AuditEvent.resource_id==resource_id)
             if actor_id: statement=statement.where(V4AuditEvent.actor_id==actor_id)
             if not grants: return []
-            statement=statement.where(tuple_(V4AuditEvent.resource_type,V4AuditEvent.resource_id).in_(grants)).order_by(V4AuditEvent.tenant_sequence).offset(offset).limit(limit)
+            archived=select(V4AuditEventArchive.target_event_id).where(V4AuditEventArchive.tenant_id==identity.tenant_id)
+            statement=statement.where(tuple_(V4AuditEvent.resource_type,V4AuditEvent.resource_id).in_(grants),~V4AuditEvent.id.in_(archived),~V4AuditEvent.event_type.like("V4_EVENT_%")).order_by(V4AuditEvent.tenant_sequence).offset(offset).limit(limit)
             _safe_integrity(session,identity.tenant_id)
-            return [V4AuditEventRead.model_validate(event) for event in session.scalars(statement)]
+            return [V4AuditEventRead.model_validate(event).model_copy(update={"payload":v4_redacted_payload(session,event)[0]}) for event in session.scalars(statement)]
         except AuthorizationDeniedError: raise HTTPException(403,"Insufficient permissions") from None
+    @api.post("/events/{event_ref}/redact")
+    def redact_event(event_ref: str, body: RedactionRequest, identity: Annotated[TenantAuthenticatedIdentity, Depends(require_v4_roles("admin"))], session: Session=db):
+        try:
+            begin_v4_write_transaction(session)
+            target=session.scalar(select(V4AuditEvent).where(V4AuditEvent.tenant_id==identity.tenant_id,V4AuditEvent.event_ref==event_ref))
+            if target is None: raise HTTPException(404,"Audit event not found")
+            require_resource_grant(session,identity,resource_type=target.resource_type,resource_id=target.resource_id,permission=ResourcePermission.REDACT_EVENT)
+            _safe_integrity(session,identity.tenant_id)
+            _,paths=redact_v4_event(session,tenant_id=identity.tenant_id,event_ref=event_ref,paths=body.paths,reason=body.reason,operator=identity.subject)
+            session.commit(); return {"redactedPaths":paths}
+        except AuthorizationDeniedError: session.rollback(); raise HTTPException(404,"Audit event not found") from None
+        except HTTPException: session.rollback(); raise
+        except ValueError: session.rollback(); raise HTTPException(422,"Invalid redaction request") from None
+        except Exception: session.rollback(); raise HTTPException(500,"Redaction failed") from None
+    @api.post("/retention/run")
+    def run_retention(identity: Annotated[TenantAuthenticatedIdentity, Depends(require_v4_roles("admin"))], session: Session=db):
+        try:
+            begin_v4_write_transaction(session)
+            require_tenant_grant(session,identity,permission=TenantPermission.RUN_RETENTION)
+            _safe_integrity(session,identity.tenant_id)
+            days=int(os.environ.get("AUDIT_RETENTION_DAYS","30"))
+            count=archive_v4_events(session,tenant_id=identity.tenant_id,retention_days=days,operator=identity.subject)
+            session.commit(); return {"archivedEventCount":count}
+        except AuthorizationDeniedError: session.rollback(); raise HTTPException(403,"Insufficient permissions") from None
+        except HTTPException: session.rollback(); raise
+        except Exception: session.rollback(); raise HTTPException(500,"Retention failed") from None
     return api

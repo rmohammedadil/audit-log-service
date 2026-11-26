@@ -1027,3 +1027,29 @@ record.
   TestClient deprecation warning in 9.15 seconds. The full regression suite
   passed: 390 tests with the same warning in 46.15 seconds. Engineer review
   and approval remain pending.
+
+## Task 36D - Scoped V4 retention and redaction integrity
+
+- **AI contribution:** Added isolated V4 redaction and retention operations,
+  lifecycle action events and tenant-bound metadata, archive filtering before
+  retrieval pagination, and lifecycle consistency checks in V4 verification.
+  Ordinary retrieval hides internal lifecycle actions and archived records;
+  redacted payloads are masked for reads and idempotent replay.
+- **Review finding and correction:** Lifecycle tampering initially reached the
+  mutation fallback as a sanitized 500. The V4 route now maps integrity
+  failures to the fail-closed 409 contract. Internal lifecycle event types are
+  rejected for ordinary creation.
+- **Validation performed:** Focused V4 route/foundation/authorization tests
+  passed: 52 tests with one existing TestClient deprecation warning in 10.57
+  seconds. Full regression output was persisted outside pytest's disposable
+  base directory: 393 tests passed with the same warning in 46.67 seconds;
+  exit code 0.
+- **Completion validation:** Added dedicated rollback/no-op, revoked-grant,
+  structurally valid unexpected-metadata, cross-tenant foreign-key, and
+  independent-session concurrent-redaction tests. The V4 route suite passed
+  15 tests in 6.10 seconds. Final full regression output was persisted outside
+  pytest's base directory: 397 tests passed with one existing TestClient
+  deprecation warning in 47.46 seconds; exit code 0.
+- **Limitations:** This remains an isolated V4 application. Full V4 endpoint
+  integration, public verification/export/report services, and default-app
+  cutover remain later-stage work.
