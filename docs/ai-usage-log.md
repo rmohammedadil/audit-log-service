@@ -888,3 +888,39 @@ record.
   `python -m pytest -q -o addopts="" tests/test_hashing.py` passed 14 tests
   without modifying existing coverage evidence. Threshold enforcement and CI
   artifact publication remain pending future approval.
+
+## Task 35 - Resource-level authorization architecture and security analysis
+
+- **AI contribution:** Performed a read-only review of JWT validation,
+  role dependencies, event ownership fields, idempotency, audit queries,
+  lifecycle operations, exports, verification, and relevant tests. Identified
+  that current authorization is role-only and does not establish tenant,
+  account, or resource scope.
+- **Engineer-provided design review:** A ChatGPT-reviewed, evaluator-derived
+  design brief was supplied for documentation. It proposes hybrid
+  authorization: verified JWT identity and tenant context plus authoritative
+  server-side grants, explicit permissions, deny-by-default behavior, a fresh
+  V4 tenant-specific chain schema, and a trusted offline grant CLI.
+- **Design findings:** Tenant-specific chains prevent cross-tenant witness
+  exposure, but resource grants alone cannot safely receive a full
+  independently verifiable witness. The proposal therefore requires a distinct
+  tenant-wide witness permission and denies the existing export format without
+  it. It also uses opaque public event references and tenant-local sequence
+  numbers rather than public global database IDs.
+- **Documentation created:** `docs/authorization-design.md` records proposed
+  claims, grants, V4 data model, chain behavior, endpoint policy, staged
+  implementation plan, adversarial tests, and legacy fail-closed behavior.
+- **Status and limitations:** No authorization implementation, database
+  migration, dependency change, test execution, or claim of engineer approval
+  occurred in this task. Grant administration, V4 rollout, privileged database
+  administrator risk, identity-provider integration, and restricted-export
+  requirements remain open for engineer approval.
+- **Engineer architecture approval:** The engineer approved the V4 hybrid JWT
+  and server-grant design, deny-by-default policy, explicit tenant-wide
+  permissions, tenant-specific chains/checkpoints, opaque public references,
+  tenant-scoped idempotency, witness authorization, SQLite retention, and
+  historical-evidence preservation. Future implementation must reject tokens
+  without tenant claims, avoid wildcard/global grants, preserve integrity-test
+  assertions, and avoid claiming complete tenant isolation until every
+  protected endpoint is integrated and tested. Production deployment and
+  privileged database-administrator limitations remain unresolved.
