@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session
 from app.auth import validate_tenant_id
 from app.models import utc_now
 from app.v4_models import V4AuditEvent, V4TenantChainState
+from app.v4_models import V4AuditEventIdempotency
+
+class V4IdempotencyConflictError(Exception): pass
 
 V4_HASH_SCHEME_VERSION = "audit-tenant-chain-v1"
 V4_CHAIN_DOMAIN = "audit-tenant-chain-hash"
@@ -79,3 +82,12 @@ def append_v4_audit_event(session: Session, *, tenant_id: str, event_type: str, 
     if state is None: state=V4TenantChainState(tenant_id=tenant_id,hash_scheme_version=V4_HASH_SCHEME_VERSION,event_count=1,head_sequence=sequence,head_chain_hash=chain);session.add(state)
     else: state.event_count=sequence;state.head_sequence=sequence;state.head_chain_hash=chain
     session.flush(); return event
+
+def v4_request_fingerprint(event_type: str, actor_id: str, resource_type: str, resource_id: str, payload: dict) -> str:
+    return sha256(_json({"eventType":event_type,"actorId":actor_id,"resourceType":resource_type,"resourceId":resource_id,"payload":payload})).hexdigest()
+
+def find_v4_replay(session: Session, tenant_id: str, subject: str, key: str, fingerprint: str) -> V4AuditEvent | None:
+    mapping=session.scalar(select(V4AuditEventIdempotency).where(V4AuditEventIdempotency.tenant_id==tenant_id,V4AuditEventIdempotency.writer_subject==subject,V4AuditEventIdempotency.idempotency_key==key))
+    if mapping is None: return None
+    if mapping.request_fingerprint != fingerprint: raise V4IdempotencyConflictError()
+    return session.scalar(select(V4AuditEvent).where(V4AuditEvent.id==mapping.event_id,V4AuditEvent.tenant_id==tenant_id))

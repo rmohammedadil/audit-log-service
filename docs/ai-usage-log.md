@@ -1000,3 +1000,30 @@ record.
   idempotency workflow, export/report integration, or complete tenant isolation
   is implemented yet. SQLite write serialization and privileged database-
   administrator limitations remain documented for later stages.
+
+## Task 36C - Scoped V4 event creation, retrieval and idempotency
+
+- **Engineer direction:** Keep V4 isolated during incremental rollout. The
+  development-only `app.v4_main` mounts only V4 `/audit/events` routes and
+  `/health`; it does not mount the legacy V3 application or present it as a
+  tenant-secure service.
+- **AI contribution:** Added tenant-aware V4 request/response schemas, an
+  explicit V4 application/database session boundary, scoped creation and list
+  routes, and tenant-scoped idempotency lookup. Create checks the verified V4
+  tenant identity, active membership, writer role, and exact `CREATE_EVENT`
+  grant inside the SQLite serialized write transaction. Reads constrain tenant
+  and active `READ_EVENT` grant pairs in SQL before ordering and pagination.
+- **Security decisions:** V4 responses expose opaque `eventRef`, never the
+  internal database ID. Replays reauthorize before returning evidence; an
+  identical request returns 200 and a first creation returns 201. Errors stay
+  generic. Lifecycle, export, report, and legacy-route integration remain out
+  of scope.
+- **Final review and validation:** Added coverage for cross-resource filtering,
+  cross-tenant key isolation, revocation, inactive membership, invalid keys,
+  and absence of legacy V3 routes from the isolated application. Review found
+  and corrected V4 idempotency-key validation so embedded whitespace is
+  rejected consistently with the established API contract. Focused V4 route,
+  foundation, and authorization tests passed: 49 tests with one existing
+  TestClient deprecation warning in 9.15 seconds. The full regression suite
+  passed: 390 tests with the same warning in 46.15 seconds. Engineer review
+  and approval remain pending.
