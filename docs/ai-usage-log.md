@@ -966,3 +966,37 @@ record.
   and complete regression evidence remains valid. SEC-03 is not closed:
   existing HTTP routes remain legacy role-only until later V4 stages integrate
   and test every protected endpoint.
+
+## Task 36B - V4 database models, tenant-specific chains and checkpoints
+
+- **Engineer-approved scope:** Implement a fresh, explicit V4 database
+  foundation only. V3 application startup, historical databases, existing
+  hashes, and HTTP routes remain unchanged.
+- **AI contribution:** Added isolated V4 ORM metadata, a strict fresh-or-
+  complete V4 schema initializer, tenant-local event sequences and opaque UUID
+  references, tenant-specific linked-chain and checkpoint primitives, and
+  future lifecycle/idempotency persistence models. Updated the trusted grant
+  CLI so its explicit target must be a complete V4 database rather than the
+  former authorization-only foundation.
+- **Integrity decisions:** V4 content hashes bind tenant ID and public event
+  reference; V4 chain hashes bind tenant ID and local sequence. Append and
+  checkpoint updates remain caller-transaction-owned. The V4 initializer
+  rejects legacy and partial targets before it creates any tables; no tenant
+  assignment, migration, or historical hash rewrite occurs.
+- **Validation performed:** Focused V4 and existing authorization-foundation
+  tests passed: 41 tests in 6.81 seconds. Python compilation and `pip check`
+  passed. The complete regression suite using a fresh external disposable
+  pytest directory passed: 382 tests with one existing Starlette `TestClient`
+  deprecation warning in 43.68 seconds.
+- **Final review and engineer approval:** Review confirmed that V4 preflight
+  rejects nonempty incompatible targets before schema creation, raw persisted
+  events and checkpoints are verified without ORM identity-map normalization,
+  malformed evidence fails closed, and composite tenant-bound foreign keys
+  prevent lifecycle/idempotency cross-tenant references. A stale-checkpoint
+  finding was corrected by reading checkpoint evidence directly from persisted
+  columns; its regression test passed. The engineer authorized finalization of
+  this Task 36B scope.
+- **Limitations:** No V4 HTTP routes, scoped event queries, lifecycle services,
+  idempotency workflow, export/report integration, or complete tenant isolation
+  is implemented yet. SQLite write serialization and privileged database-
+  administrator limitations remain documented for later stages.

@@ -1,54 +1,34 @@
-"""Trusted offline administration for the isolated Task 36A grant foundation.
+"""Trusted offline grant administration for an explicit complete V4 target.
 
-This CLI never uses ``AUDIT_DB_PATH`` and has no HTTP surface.  Until Task 36B
-defines the combined V4 schema, it accepts only an explicit fresh or compatible
-authorization-foundation database target.
+This CLI never uses ``AUDIT_DB_PATH`` and cannot create authorization tables in
+a legacy or partially upgraded audit database.
 """
 
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
-import sqlite3
 import sys
 
-from sqlalchemy import Engine, create_engine, event, inspect, select
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from app.authorization_models import AuthorizationBase, ResourceGrant, TenantPermissionGrant, TenantPrincipal
+from app.authorization_models import ResourceGrant, TenantPermissionGrant, TenantPrincipal
 from app.auth import validate_tenant_id
 from app.permissions import ResourcePermission, TenantPermission, require_resource_permission, require_tenant_permission
+from app.v4_database import IncompatibleV4DatabaseError, initialize_v4_database
 
 
 class AuthorizationDatabaseError(ValueError):
     """Raised when an explicit offline grant target is unsafe or incompatible."""
 
 
-_AUTH_TABLES = frozenset(AuthorizationBase.metadata.tables)
-
-
-def _database_url(path: str) -> str:
-    if not isinstance(path, str) or not path.strip():
-        raise AuthorizationDatabaseError("an explicit nonblank database path is required")
-    return f"sqlite:///{Path(path).as_posix()}"
-
-
-def _foreign_keys(connection: object, record: object) -> None:
-    del record
-    if isinstance(connection, sqlite3.Connection):
-        connection.execute("PRAGMA foreign_keys=ON")
-
-
 def authorization_engine(path: str) -> Engine:
-    """Open only a fresh or complete isolated authorization-foundation store."""
+    """Open only a fresh or fully compatible V4 authorization target."""
 
-    engine = create_engine(_database_url(path))
-    event.listen(engine, "connect", _foreign_keys)
-    tables = set(inspect(engine).get_table_names())
-    if tables and tables != _AUTH_TABLES:
-        raise AuthorizationDatabaseError("database is not a compatible authorization foundation target")
-    AuthorizationBase.metadata.create_all(engine)
-    return engine
+    try:
+        return initialize_v4_database(path)
+    except IncompatibleV4DatabaseError as error:
+        raise AuthorizationDatabaseError(str(error)) from error
 
 
 def _principal(session: Session, tenant_id: str, subject: str) -> TenantPrincipal:

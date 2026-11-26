@@ -255,6 +255,41 @@ Partial stages must not be represented as a secure multi-tenant implementation.
 Before V4 scoped routes are complete, existing role-only behavior remains a
 known security limitation.
 
+## Task 36B implementation status
+
+Task 36B implements only the isolated V4 persistence foundation.  It adds a
+fresh explicit V4 initializer, tenant-local immutable event references and
+sequences, tenant checkpoints, canonical tenant-bound content hashes, linked
+tenant chain hashes, and persistence structures for future lifecycle and
+idempotency behavior.  The initializer accepts a fresh target or a complete
+matching V4 schema; it rejects legacy and partial targets before schema
+creation.  The offline grant CLI now uses that initializer, so it cannot add
+grant tables to an existing V3 audit database.
+
+V3 application startup remains unchanged and never imports the V4 initializer.
+There are still no V4 HTTP routes, response schemas, lifecycle services, or
+tenant-scoped API authorization decisions.  Consequently, this foundation is
+not complete tenant isolation and does not close the role-only legacy-route
+limitation.
+
+### V4 canonical evidence
+
+The explicit V4 scheme version is `audit-tenant-chain-v1`. Content canonical
+JSON uses sorted keys, compact separators, UTF-8, JSON-object payloads only,
+and UTC timestamps rendered to microseconds with a `Z` suffix. It hashes these
+fields exactly: `tenantId`, `eventRef`, `eventType`, `actorId`,
+`resourceType`, `resourceId`, `payload`, and `timestamp`. The content genesis
+is SHA-256 of the UTF-8 literal `audit-tenant-content-genesis-v1`.
+
+Each tenant has a separate SHA-256 chain genesis over canonical JSON containing
+the domain `audit-tenant-chain-hash`, scheme version, tenant ID, and
+`genesis: true`. Each subsequent chain hash canonically binds that domain,
+scheme version, tenant ID, tenant-local sequence, content hash, and previous
+chain hash. A per-tenant checkpoint stores scheme version, count, head
+sequence, and head chain hash. Appending validates the applicable tenant chain
+and updates its event/checkpoint within the caller-owned transaction; it never
+commits or repairs inconsistent evidence.
+
 ## Adversarial test matrix
 
 - Same-role, cross-tenant create/read/export/report/redact/retention/verify.
