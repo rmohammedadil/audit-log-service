@@ -4,6 +4,11 @@ This log records the actual AI-assisted workflow for this repository. It is
 updated as tasks are proposed, approved, implemented, and reviewed. It does
 not represent approval or work that has not occurred.
 
+This document is organized by task number for readability and assessment
+traceability. Historical entries reflect the state of development when they
+were recorded; Git history remains the authoritative chronological development
+record.
+
 ## Task 1 - Requirements baseline and architecture outline
 
 - **Assessment requirement addressed:** Requirement understanding, task
@@ -378,288 +383,6 @@ not represent approval or work that has not occurred.
   permission configuration was not diagnosed or repaired.
 - **Engineer review and approval of this implementation:** Pending.
 
-## Task 30 - CI, dependency scanning, and Docker runtime validation
-
-- **AI contribution:** Added a least-privilege GitHub Actions workflow with
-  Python regression, pinned `pip-audit`, and a bounded Compose smoke script.
-  The script creates test-only JWT values at runtime and cleans its unique
-  containers and volume on exit.
-- **Validation status:** Local workflow and shell syntax checks, dependency
-  scanning where network access permits, and regression results are recorded
-  only after execution. Docker runtime validation is pending the first remote
-  GitHub Actions run because local Docker is unavailable.
-
-- **Validation performed:** Shell syntax, application compilation, `pip check`,
-  and Git diff checks passed. `pip-audit 2.10.1` reported no known
-  vulnerabilities for `requirements.txt`. The complete regression suite passed:
-  341 tests with one existing TestClient deprecation warning. Docker image and
-  Compose runtime checks remain pending remote execution.
-
-- **Review correction:** Generated CI signing keys and smoke-test bearer tokens
-  are now registered with GitHub log masking before use. The smoke test asserts
-  exact 200/201/401 response contracts rather than accepting any successful
-  2xx response. Remote Docker validation remains pending.
-
-- **Remote CI finding and remediation:** The first remote `pip-audit` job
-  failed with 33 findings that included repeated advisory identifiers for PyJWT
-  2.10.1 and cryptography 46.0.5. Local and remote results differed because
-  the vulnerability advisory data is time-dependent. PyJWT 2.15.0 and
-  cryptography 50.0.0 were selected from the reported fixed versions after
-  confirming Python 3.12 availability. PYSEC-2025-183 is separately recorded:
-  OSV marks versions through 2.10.1 as affected, notes the supplier disputes
-  the weak-key characterization, and lists no fixed version. The post-update
-  strict scan, focused security tests, and full regression results are recorded
-  only after execution; a passing remote CI run remains pending.
-
-- **Validation performed:** Focused JWT/RBAC and export-signing coverage passed:
-  30 tests, with 118 unrelated tests deselected and one existing TestClient
-  deprecation warning. The complete suite passed: 341 tests with that same
-  warning. `compileall` and `pip check` passed. The updated strict `pip-audit`
-  scan reported no known vulnerabilities for `requirements.txt`. The historical
-  database checksum remained unchanged. A post-remediation remote CI run is
-  still required to validate the GitHub-hosted environment.
-
-## Task 31 - Final end-to-end acceptance validation
-
-- **Repository/CI evidence:** Local `main` and `origin/main` matched at
-  `82d88adc658b3a55e7bc008ef3023c40cdcf5597`. The developer confirmed a
-  successful post-remediation GitHub Actions pipeline. Codex could not retrieve
-  a run ID, job breakdown, or Docker logs: the configured GitHub CLI credential
-  was invalid and the unauthenticated Actions API returned 404.
-- **Acceptance evidence:** A new external disposable pytest base directory ran
-  24 selected API, crypto, reporting, and operational tests with temporary
-  credentials and isolated SQLite databases: all passed with one existing
-  TestClient deprecation warning. Full regression/security results are recorded
-  after execution. No historical database is used for tampering tests.
-
-- **Final local validation:** The complete regression suite passed: 341 tests
-  with one existing TestClient deprecation warning. `compileall`, `pip check`,
-  strict `pip-audit --requirement requirements.txt --strict`, and `git diff
-  --check` passed. The local scan reported no known vulnerabilities and the
-  historical database checksum matched its baseline. No application defect was
-  found; remote CI job-level evidence remains unavailable to this review.
-
-## Task 32.2 - Current high-level architecture documentation
-
-- **AI contribution:** Reorganized `docs/architecture.md` around the current
-  implementation after reviewing the actual routes, services, models,
-  authentication, deployment configuration, and CI workflow. The document now
-  includes implementation-aligned Mermaid architecture, deployment, and CI
-  diagrams.
-- **Historical preservation:** The prior incremental architecture narrative is
-  retained as a clearly labelled historical record. Requirements and this log
-  preserve task-era decisions without presenting superseded future-tense plans
-  as current behavior.
-- **Validation status:** Documentation-focused source cross-checks, Markdown
-  links, Mermaid review, diff validation, and database checksum verification
-  are recorded after this review. No application code or tests are changed or
-  executed for this documentation-only task.
-
-## Task 27 - Transactional write idempotency
-
-- **AI contribution:** Added writer-scoped fingerprints, atomic replay mapping,
-  conflict handling, and additive V3 initialization.
-
-## Task 28 - API hardening and OpenAPI documentation
-
-- **AI contribution:** Added bounded offset validation, accurate integrity
-  wording, endpoint OpenAPI summaries/error responses, and documentation
-  reconciliation. Tests are pending manual execution.
-
-- **Validation:** Developer manual validation passed 223 focused and 341 full
-  tests. After the OpenAPI 422-schema correction, Codex reran the full suite:
-  341 passed with one existing deprecation warning.
-
-## Task 29 - Secure Docker containerization
-
-- **AI contribution:** Added non-root Python 3.12 image, Compose storage and
-  health check, signing override, secure build exclusions, and runtime config
-  template. Docker CLI was unavailable locally, so image/runtime checks remain
-  unverified pending a Docker-enabled environment.
-
-- **Validation:** Codex ran the full regression suite after documentation
-  review: 341 passed with one existing TestClient deprecation warning. Static
-  `compileall`, `pip check`, and Git diff validation passed. Docker build,
-  Compose parsing, and container runtime validation could not run because the
-  local Docker CLI was unavailable.
-
-- **Review correction:** Added genuine concurrent API coverage and narrowed
-  idempotency validation error mapping so unrelated internal ValueError cases
-  retain sanitized HTTP 500 behavior.
-
-- **Developer validation:** Focused tests passed: 12 in 3.54 seconds. Full
-  regression passed: 334 in 36.85 seconds, with one existing deprecation
-  warning and zero failures. The developer confirmed concurrent same-key,
-  rollback, redacted replay, corruption, isolation, and compatibility coverage.
-
-## Task 23 - Essential production hardening
-
-- **AI contribution:** Added safe request telemetry, request IDs, readiness,
-  sanitized unexpected errors, and SQLite local write coordination.
-- **Quality:** Focused tests passed. Full regression and available checks are
-  recorded after execution; no vulnerability scanner is configured.
-
-- **Validation:** Focused readiness/locking/API tests passed: 125 tests. Full
-  regression passed: 319 tests, both with one existing TestClient warning.
-  `compileall` and `pip check` passed. No vulnerability scanner is installed.
-
-## Task 25 - Lifecycle integrity exposure prevention
-
-- **Finding:** Isolated direct-SQL testing reproduced a narrowed lifecycle
-  validation bypass that could expose a redacted original payload.
-- **Correction:** Retrieval now fails closed after full verification; `/verify`
-  remains available for diagnosis. Focused/full results follow validation.
-
-## Task 26 - Ed25519 signed audit exports
-
-- **AI contribution:** Added optional Ed25519 digest signing, safe local key
-  generation, and independent-public-key offline verification.
-- **Boundary:** Unsigned bundles remain compatible. Configured signing cannot
-  silently downgrade; embedded key IDs are identifiers, not trust anchors.
-
-- **Validation:** Focused signing tests passed: 16 tests. Full regression
-  passed: 324 tests with one existing TestClient warning.
-
-- **Validation:** Focused retrieval/redaction tests passed: 117 tests. Full
-  regression passed: 321 tests with one existing TestClient warning.
-
-## Task 22 - JWT authentication and RBAC
-
-- **AI contribution:** Added environment configuration, JWT claim validation,
-  Bearer Swagger support, RBAC, local token CLI, and isolated tests.
-- **Boundary:** No token issuance endpoint, secrets manager, key rotation,
-  revocation, or IdP integration. JWT subject is distinct from business actorId.
-- **Validation:** Focused JWT/API coverage passed: 111 tests with one existing
-  Starlette `TestClient` warning. After the isolated startup-test configuration
-  correction, the complete suite passed: 315 tests with the same warning.
-
-## Task 20 - Scenario C requirement clarification and design
-
-- **Planning only:** Recorded ambiguity questions and a proposed normalized
-  regulator account-access reporting requirement. No application code, tests,
-  database, dependency, or Git changes beyond this planning documentation were
-  made.
-- **Proposed direction:** A future regulator-only read API would reuse existing
-  query, lifecycle validation, redaction, retention, and evidence primitives;
-  JWT authentication and RBAC are explicitly deferred to its security task.
-  Stakeholders must define access-event taxonomy, identity, outcome, reporting
-  range, regulator role, and data-minimization obligations before approval.
-- **Task 19 manual status reported by the engineer:** An isolated V3 database
-  was used. Repeated redaction and standalone expected-digest verification
-  passed. Remaining Swagger/manual acceptance checks are deferred to final
-  application acceptance; no claim is made that they were completed.
-
-## Task 21 - Compliance reporting
-
-- **AI contribution:** Implemented a read-only access-report route, explicit
-  access-event contract validation, verified filtering/pagination, and isolated
-  API coverage for filtering, UTC validation, redaction, archival inclusion,
-  invalid input, and corrupt-source rejection.
-- **Scope boundary:** The report uses existing verification, lifecycle, archive,
-  and redaction behavior. It covers only explicitly recorded access events and
-  does not infer outcomes from historical payloads. JWT and regulator RBAC are
-  deferred to Task 22; manual validation remains deferred to final testing.
-- **Validation:** Focused API coverage passed: 102 tests with one existing
-  Starlette `TestClient` warning. The complete regression suite passed: 306
-  tests with the same single warning. No database migration or dependency
-  change was made.
-
-## Task 16 - Configurable retention and logical archival
-
-- **Engineering improvement:** Implements the approved Scenario B retention
-  slice while retaining original audit events and their existing hash evidence.
-  It does not implement redaction, export, authentication, authorization, or
-  Scenario C.
-- **Engineer direction accepted:** The engineer approved a server-owned,
-  bounded retention policy; strict UTC cutoff behavior; reserved lifecycle
-  event types; one chained archival action per non-empty run; archive-aware
-  retrieval; and bidirectional archive/action verification.
-- **AI contribution:** Added the bounded `AUDIT_RETENTION_DAYS` parser and
-  default, a caller-owned retention service, reserved-type protection at schema
-  and ordinary-service boundaries, an empty policy-run API contract, database
-  archive filtering, lifecycle metadata verification, and isolated service/API
-  regression coverage.
-- **Implementation decision:** The default policy is 90 days and the maximum
-  is 36,500 days. Eligible targets are strictly earlier than the normalized UTC
-  cutoff, unarchived, and not internal lifecycle events. A successful run first
-  performs full read-only verification, then appends one
-  `AUDIT_RETENTION_APPLIED` event whose payload records duration, cutoff,
-  ordered target IDs, count, and action timestamp. Archive metadata receives
-  that exact server timestamp. No-op runs append nothing.
-- **Integrity decision:** Existing content and linked hashes remain unchanged.
-  Lifecycle checks run only after the established event-chain and checkpoint
-  checks. `ARCHIVE_MALFORMED_ACTION` identifies malformed action evidence;
-  `ARCHIVE_METADATA_MISMATCH` identifies missing, unexpected, duplicate,
-  conflicting, ineligible, or timestamp/reference-inconsistent archive state.
-  Redaction metadata verification remains deferred.
-- **Validation performed:** Initial focused retention/API coverage passed, then
-  final focused retention, API, and schema validation passed: 165 tests. The
-  complete suite using a fresh external disposable pytest directory passed:
-  272 tests with one existing Starlette `TestClient` deprecation warning and no
-  failures, skips, or deselections. An isolated V3 startup/no-op retention
-  smoke test passed. A separate disposable eligible-event demonstration passed
-  successful archival, default query exclusion, explicit inclusion, intact
-  full-chain verification, and archive-metadata tampering detection.
-- **Known limitations:** Logical archival retains payloads and storage; it is
-  not permanent erasure. One retention execution materializes all eligible IDs
-  in memory and has no scheduler, batching, concurrency coordination, access
-  control, migration path, external anchoring, or production observability.
-  The lifecycle endpoint is intended only for trusted local assessment use.
-- **Engineer review and conditional approval:** The engineer approved the
-  retention architecture in principle and authorized commit after focused
-  review of lifecycle metadata verification, rollback behavior, API error
-  handling, required adversarial coverage, final validation, and protected
-  database checks. The review-driven cutoff/duration consistency check and
-  focused tests were added before final validation. This remains an approval of
-  logical archival only, not redaction, export, access control, or production
-  readiness.
-
-## Task 17 - Sensitive payload redaction and lifecycle integrity
-
-- **Engineering improvement:** Adds non-destructive JSON Pointer redaction
-  overlays while preserving original audit payloads, hashes, links, and
-  timestamps. This is masking at retrieval, not permanent deletion.
-- **Implementation decision:** Valid requests contain at most 50 distinct,
-  non-overlapping RFC 6901 paths and an allowlisted non-sensitive reason code.
-  One `AUDIT_REDACTION_APPLIED` lifecycle event records the target, ordered new
-  paths, count, reason, and action timestamp. Matching metadata uses that exact
-  timestamp; repeated existing paths are no-ops and do not rewrite a reason.
-- **AI contribution:** Added pointer parsing/projection helpers, service and
-  API boundaries, lifecycle verification, projected query responses, focused
-  isolated tests, and documentation of the hash/projection trust boundary.
-- **Validation performed:** Final focused acceptance coverage added checkpoint,
-  fail-closed retrieval, and rollback assertions. The complete regression suite
-  using a fresh external disposable pytest base directory passed: 278 tests
-  with one existing Starlette `TestClient` deprecation warning and no failures.
-- **Known limitations:** Redaction has no authentication or authorization,
-  permanent erasure, export, concurrency coordination, scheduler, migration,
-  or external trust anchor. The endpoint is for trusted local assessment use.
-- **Engineer review and conditional approval:** The engineer approved commit
-  after focused confirmation of checkpoint advancement, lifecycle fail-closed
-  retrieval, atomic rollback, Scenario A/retention compatibility, final
-  regression validation, and database preservation.
-
-## Task 18 - Bulk Export and Independent Verification
-
-- **AI contribution:** Added a read-only export service and `POST /audit/exports`,
-  plus a standard-library-only `python -m app.verify_export` utility. Reused
-  existing full-chain verification, lifecycle overlays, canonical hashing, and
-  redaction projection rather than creating alternate evidence rules.
-- **Implementation decision:** Bundles contain masked selected records, related
-  lifecycle metadata, a payload-free ordered witness, checkpoint state, fixed
-  scheme/genesis values, and a canonical SHA-256 digest. The standalone tool
-  distinguishes internal consistency from comparison with an externally
-  retained expected digest and labels redacted content as non-recomputable.
-- **Validation:** Focused export/API coverage passed: 105 tests with one
-  existing Starlette `TestClient` deprecation warning. The complete regression
-  suite, using a fresh external disposable pytest base directory, passed: 296
-  tests with the same single warning. No manual Swagger testing was performed;
-  comprehensive manual API validation remains deferred to Task 19.
-- **Engineer approval:** The engineer accepted Task 17 and authorized Task 18
-  implementation and commit after the specified integrity, redaction, archive,
-  verifier, and regression checks. This entry records the actual completion
-  result; it does not claim manual Swagger validation.
-
 ## Task 12 - Evidence-preserving response schemas
 
 - **Engineering improvement:** Supports Scenario A audit-evidence fidelity by
@@ -793,6 +516,288 @@ not represent approval or work that has not occurred.
   endpoints are intended for trusted local assessment use until access control
   is separately approved.
 - **Engineer review and approval of this implementation:** Pending.
+
+## Task 16 - Configurable retention and logical archival
+
+- **Engineering improvement:** Implements the approved Scenario B retention
+  slice while retaining original audit events and their existing hash evidence.
+  It does not implement redaction, export, authentication, authorization, or
+  Scenario C.
+- **Engineer direction accepted:** The engineer approved a server-owned,
+  bounded retention policy; strict UTC cutoff behavior; reserved lifecycle
+  event types; one chained archival action per non-empty run; archive-aware
+  retrieval; and bidirectional archive/action verification.
+- **AI contribution:** Added the bounded `AUDIT_RETENTION_DAYS` parser and
+  default, a caller-owned retention service, reserved-type protection at schema
+  and ordinary-service boundaries, an empty policy-run API contract, database
+  archive filtering, lifecycle metadata verification, and isolated service/API
+  regression coverage.
+- **Implementation decision:** The default policy is 90 days and the maximum
+  is 36,500 days. Eligible targets are strictly earlier than the normalized UTC
+  cutoff, unarchived, and not internal lifecycle events. A successful run first
+  performs full read-only verification, then appends one
+  `AUDIT_RETENTION_APPLIED` event whose payload records duration, cutoff,
+  ordered target IDs, count, and action timestamp. Archive metadata receives
+  that exact server timestamp. No-op runs append nothing.
+- **Integrity decision:** Existing content and linked hashes remain unchanged.
+  Lifecycle checks run only after the established event-chain and checkpoint
+  checks. `ARCHIVE_MALFORMED_ACTION` identifies malformed action evidence;
+  `ARCHIVE_METADATA_MISMATCH` identifies missing, unexpected, duplicate,
+  conflicting, ineligible, or timestamp/reference-inconsistent archive state.
+  Redaction metadata verification remains deferred.
+- **Validation performed:** Initial focused retention/API coverage passed, then
+  final focused retention, API, and schema validation passed: 165 tests. The
+  complete suite using a fresh external disposable pytest directory passed:
+  272 tests with one existing Starlette `TestClient` deprecation warning and no
+  failures, skips, or deselections. An isolated V3 startup/no-op retention
+  smoke test passed. A separate disposable eligible-event demonstration passed
+  successful archival, default query exclusion, explicit inclusion, intact
+  full-chain verification, and archive-metadata tampering detection.
+- **Known limitations:** Logical archival retains payloads and storage; it is
+  not permanent erasure. One retention execution materializes all eligible IDs
+  in memory and has no scheduler, batching, concurrency coordination, access
+  control, migration path, external anchoring, or production observability.
+  The lifecycle endpoint is intended only for trusted local assessment use.
+- **Engineer review and conditional approval:** The engineer approved the
+  retention architecture in principle and authorized commit after focused
+  review of lifecycle metadata verification, rollback behavior, API error
+  handling, required adversarial coverage, final validation, and protected
+  database checks. The review-driven cutoff/duration consistency check and
+  focused tests were added before final validation. This remains an approval of
+  logical archival only, not redaction, export, access control, or production
+  readiness.
+
+## Task 17 - Sensitive payload redaction and lifecycle integrity
+
+- **Engineering improvement:** Adds non-destructive JSON Pointer redaction
+  overlays while preserving original audit payloads, hashes, links, and
+  timestamps. This is masking at retrieval, not permanent deletion.
+- **Implementation decision:** Valid requests contain at most 50 distinct,
+  non-overlapping RFC 6901 paths and an allowlisted non-sensitive reason code.
+  One `AUDIT_REDACTION_APPLIED` lifecycle event records the target, ordered new
+  paths, count, reason, and action timestamp. Matching metadata uses that exact
+  timestamp; repeated existing paths are no-ops and do not rewrite a reason.
+- **AI contribution:** Added pointer parsing/projection helpers, service and
+  API boundaries, lifecycle verification, projected query responses, focused
+  isolated tests, and documentation of the hash/projection trust boundary.
+- **Validation performed:** Final focused acceptance coverage added checkpoint,
+  fail-closed retrieval, and rollback assertions. The complete regression suite
+  using a fresh external disposable pytest base directory passed: 278 tests
+  with one existing Starlette `TestClient` deprecation warning and no failures.
+- **Known limitations:** Redaction has no authentication or authorization,
+  permanent erasure, export, concurrency coordination, scheduler, migration,
+  or external trust anchor. The endpoint is for trusted local assessment use.
+- **Engineer review and conditional approval:** The engineer approved commit
+  after focused confirmation of checkpoint advancement, lifecycle fail-closed
+  retrieval, atomic rollback, Scenario A/retention compatibility, final
+  regression validation, and database preservation.
+
+## Task 18 - Bulk Export and Independent Verification
+
+- **AI contribution:** Added a read-only export service and `POST /audit/exports`,
+  plus a standard-library-only `python -m app.verify_export` utility. Reused
+  existing full-chain verification, lifecycle overlays, canonical hashing, and
+  redaction projection rather than creating alternate evidence rules.
+- **Implementation decision:** Bundles contain masked selected records, related
+  lifecycle metadata, a payload-free ordered witness, checkpoint state, fixed
+  scheme/genesis values, and a canonical SHA-256 digest. The standalone tool
+  distinguishes internal consistency from comparison with an externally
+  retained expected digest and labels redacted content as non-recomputable.
+- **Validation:** Focused export/API coverage passed: 105 tests with one
+  existing Starlette `TestClient` deprecation warning. The complete regression
+  suite, using a fresh external disposable pytest base directory, passed: 296
+  tests with the same single warning. No manual Swagger testing was performed;
+  comprehensive manual API validation remains deferred to Task 19.
+- **Engineer approval:** The engineer accepted Task 17 and authorized Task 18
+  implementation and commit after the specified integrity, redaction, archive,
+  verifier, and regression checks. This entry records the actual completion
+  result; it does not claim manual Swagger validation.
+
+## Task 20 - Scenario C requirement clarification and design
+
+- **Planning only:** Recorded ambiguity questions and a proposed normalized
+  regulator account-access reporting requirement. No application code, tests,
+  database, dependency, or Git changes beyond this planning documentation were
+  made.
+- **Proposed direction:** A future regulator-only read API would reuse existing
+  query, lifecycle validation, redaction, retention, and evidence primitives;
+  JWT authentication and RBAC are explicitly deferred to its security task.
+  Stakeholders must define access-event taxonomy, identity, outcome, reporting
+  range, regulator role, and data-minimization obligations before approval.
+- **Task 19 manual status reported by the engineer:** An isolated V3 database
+  was used. Repeated redaction and standalone expected-digest verification
+  passed. Remaining Swagger/manual acceptance checks are deferred to final
+  application acceptance; no claim is made that they were completed.
+
+## Task 21 - Compliance reporting
+
+- **AI contribution:** Implemented a read-only access-report route, explicit
+  access-event contract validation, verified filtering/pagination, and isolated
+  API coverage for filtering, UTC validation, redaction, archival inclusion,
+  invalid input, and corrupt-source rejection.
+- **Scope boundary:** The report uses existing verification, lifecycle, archive,
+  and redaction behavior. It covers only explicitly recorded access events and
+  does not infer outcomes from historical payloads. JWT and regulator RBAC are
+  deferred to Task 22; manual validation remains deferred to final testing.
+- **Validation:** Focused API coverage passed: 102 tests with one existing
+  Starlette `TestClient` warning. The complete regression suite passed: 306
+  tests with the same single warning. No database migration or dependency
+  change was made.
+
+## Task 22 - JWT authentication and RBAC
+
+- **AI contribution:** Added environment configuration, JWT claim validation,
+  Bearer Swagger support, RBAC, local token CLI, and isolated tests.
+- **Boundary:** No token issuance endpoint, secrets manager, key rotation,
+  revocation, or IdP integration. JWT subject is distinct from business actorId.
+- **Validation:** Focused JWT/API coverage passed: 111 tests with one existing
+  Starlette `TestClient` warning. After the isolated startup-test configuration
+  correction, the complete suite passed: 315 tests with the same warning.
+
+## Task 23 - Essential production hardening
+
+- **AI contribution:** Added safe request telemetry, request IDs, readiness,
+  sanitized unexpected errors, and SQLite local write coordination.
+- **Quality:** Focused tests passed. Full regression and available checks are
+  recorded after execution; no vulnerability scanner is configured.
+
+- **Validation:** Focused readiness/locking/API tests passed: 125 tests. Full
+  regression passed: 319 tests, both with one existing TestClient warning.
+  `compileall` and `pip check` passed. No vulnerability scanner is installed.
+
+## Task 25 - Lifecycle integrity exposure prevention
+
+- **Finding:** Isolated direct-SQL testing reproduced a narrowed lifecycle
+  validation bypass that could expose a redacted original payload.
+- **Correction:** Retrieval now fails closed after full verification; `/verify`
+  remains available for diagnosis. Focused/full results follow validation.
+
+## Task 26 - Ed25519 signed audit exports
+
+- **AI contribution:** Added optional Ed25519 digest signing, safe local key
+  generation, and independent-public-key offline verification.
+- **Boundary:** Unsigned bundles remain compatible. Configured signing cannot
+  silently downgrade; embedded key IDs are identifiers, not trust anchors.
+
+- **Validation:** Focused signing tests passed: 16 tests. Full regression
+  passed: 324 tests with one existing TestClient warning.
+
+- **Validation:** Focused retrieval/redaction tests passed: 117 tests. Full
+  regression passed: 321 tests with one existing TestClient warning.
+
+## Task 27 - Transactional write idempotency
+
+- **AI contribution:** Added writer-scoped fingerprints, atomic replay mapping,
+  conflict handling, and additive V3 initialization.
+
+## Task 28 - API hardening and OpenAPI documentation
+
+- **AI contribution:** Added bounded offset validation, accurate integrity
+  wording, endpoint OpenAPI summaries/error responses, and documentation
+  reconciliation. Tests are pending manual execution.
+
+- **Validation:** Developer manual validation passed 223 focused and 341 full
+  tests. After the OpenAPI 422-schema correction, Codex reran the full suite:
+  341 passed with one existing deprecation warning.
+
+## Task 29 - Secure Docker containerization
+
+- **AI contribution:** Added non-root Python 3.12 image, Compose storage and
+  health check, signing override, secure build exclusions, and runtime config
+  template. Docker CLI was unavailable locally, so image/runtime checks remain
+  unverified pending a Docker-enabled environment.
+
+- **Validation:** Codex ran the full regression suite after documentation
+  review: 341 passed with one existing TestClient deprecation warning. Static
+  `compileall`, `pip check`, and Git diff validation passed. Docker build,
+  Compose parsing, and container runtime validation could not run because the
+  local Docker CLI was unavailable.
+
+- **Review correction:** Added genuine concurrent API coverage and narrowed
+  idempotency validation error mapping so unrelated internal ValueError cases
+  retain sanitized HTTP 500 behavior.
+
+- **Developer validation:** Focused tests passed: 12 in 3.54 seconds. Full
+  regression passed: 334 in 36.85 seconds, with one existing deprecation
+  warning and zero failures. The developer confirmed concurrent same-key,
+  rollback, redacted replay, corruption, isolation, and compatibility coverage.
+
+## Task 30 - CI, dependency scanning, and Docker runtime validation
+
+- **AI contribution:** Added a least-privilege GitHub Actions workflow with
+  Python regression, pinned `pip-audit`, and a bounded Compose smoke script.
+  The script creates test-only JWT values at runtime and cleans its unique
+  containers and volume on exit.
+- **Validation status:** Local workflow and shell syntax checks, dependency
+  scanning where network access permits, and regression results are recorded
+  only after execution. Docker runtime validation is pending the first remote
+  GitHub Actions run because local Docker is unavailable.
+
+- **Validation performed:** Shell syntax, application compilation, `pip check`,
+  and Git diff checks passed. `pip-audit 2.10.1` reported no known
+  vulnerabilities for `requirements.txt`. The complete regression suite passed:
+  341 tests with one existing TestClient deprecation warning. Docker image and
+  Compose runtime checks remain pending remote execution.
+
+- **Review correction:** Generated CI signing keys and smoke-test bearer tokens
+  are now registered with GitHub log masking before use. The smoke test asserts
+  exact 200/201/401 response contracts rather than accepting any successful
+  2xx response. Remote Docker validation remains pending.
+
+- **Remote CI finding and remediation:** The first remote `pip-audit` job
+  failed with 33 findings that included repeated advisory identifiers for PyJWT
+  2.10.1 and cryptography 46.0.5. Local and remote results differed because
+  the vulnerability advisory data is time-dependent. PyJWT 2.15.0 and
+  cryptography 50.0.0 were selected from the reported fixed versions after
+  confirming Python 3.12 availability. PYSEC-2025-183 is separately recorded:
+  OSV marks versions through 2.10.1 as affected, notes the supplier disputes
+  the weak-key characterization, and lists no fixed version. The post-update
+  strict scan, focused security tests, and full regression results are recorded
+  only after execution; a passing remote CI run remains pending.
+
+- **Validation performed:** Focused JWT/RBAC and export-signing coverage passed:
+  30 tests, with 118 unrelated tests deselected and one existing TestClient
+  deprecation warning. The complete suite passed: 341 tests with that same
+  warning. `compileall` and `pip check` passed. The updated strict `pip-audit`
+  scan reported no known vulnerabilities for `requirements.txt`. The historical
+  database checksum remained unchanged. A post-remediation remote CI run is
+  still required to validate the GitHub-hosted environment.
+
+## Task 31 - Final end-to-end acceptance validation
+
+- **Repository/CI evidence:** Local `main` and `origin/main` matched at
+  `82d88adc658b3a55e7bc008ef3023c40cdcf5597`. The developer confirmed a
+  successful post-remediation GitHub Actions pipeline. Codex could not retrieve
+  a run ID, job breakdown, or Docker logs: the configured GitHub CLI credential
+  was invalid and the unauthenticated Actions API returned 404.
+- **Acceptance evidence:** A new external disposable pytest base directory ran
+  24 selected API, crypto, reporting, and operational tests with temporary
+  credentials and isolated SQLite databases: all passed with one existing
+  TestClient deprecation warning. Full regression/security results are recorded
+  after execution. No historical database is used for tampering tests.
+
+- **Final local validation:** The complete regression suite passed: 341 tests
+  with one existing TestClient deprecation warning. `compileall`, `pip check`,
+  strict `pip-audit --requirement requirements.txt --strict`, and `git diff
+  --check` passed. The local scan reported no known vulnerabilities and the
+  historical database checksum matched its baseline. No application defect was
+  found; remote CI job-level evidence remains unavailable to this review.
+
+## Task 32.2 - Current high-level architecture documentation
+
+- **AI contribution:** Reorganized `docs/architecture.md` around the current
+  implementation after reviewing the actual routes, services, models,
+  authentication, deployment configuration, and CI workflow. The document now
+  includes implementation-aligned Mermaid architecture, deployment, and CI
+  diagrams.
+- **Historical preservation:** The prior incremental architecture narrative is
+  retained as a clearly labelled historical record. Requirements and this log
+  preserve task-era decisions without presenting superseded future-tense plans
+  as current behavior.
+- **Validation status:** Documentation-focused source cross-checks, Markdown
+  links, Mermaid review, diff validation, and database checksum verification
+  are recorded after this review. No application code or tests are changed or
+  executed for this documentation-only task.
 
 ## Task 32.3 - Comprehensive low-level system design documentation
 
