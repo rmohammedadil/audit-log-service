@@ -274,9 +274,16 @@ during final acceptance review.
 
 ## 13. Documentation navigation
 
+- [Evaluator engineering summary](../ENGINEERING_SUMMARY.md)
 - [Repository overview and setup](../README.md)
 - [Requirements analysis and decision history](requirements.md)
+- [Low-level system design](system-design.md)
 - [Testing and acceptance traceability](testing.md)
+- [API reference](api-reference.md)
+- [Security and threat model](security.md)
+- [Assessment walkthrough](walkthrough.md)
+- [Scenario guides](scenarios/)
+- [Practical examples](examples/)
 - [AI-assisted development history](ai-usage-log.md)
 
 ---
