@@ -855,3 +855,36 @@ record.
 - **Repository validation:** The uncommitted local token-expiry change was restored under explicit engineer authorization after confirming it was the only pending application diff. The feature-frozen source/tests/dependencies/deployment baseline and historical database checksum were then rechecked without rerunning regression.
 - **Security and evidence review:** Current tracked files and relevant Git history were checked for private-key headers, JWT-shaped tokens, environment files, database files, and virtual-environment paths; no matching sensitive material was found. GitHub CLI authentication was invalid, so repository privacy and detailed remote CI logs remain developer-manual verification items.
 - **Screenshots and submission:** Optional screenshots were intentionally skipped by engineer decision. This task prepares local documentation only; no attestation commit, push, or assessment submission has occurred. Final engineer approval is still required before staging and committing these three files.
+
+## Task 34 - Baseline verification and measured test coverage
+
+- **Engineer-provided objective:** Establish reproducible line and branch
+  coverage measurement without changing application business logic,
+  authorization, database schemas, hashing, or lifecycle behavior.
+- **AI contribution:** Inspected the clean baseline, dependency manifest,
+  pytest availability, and CI regression command. Added pinned
+  `pytest-cov==7.1.0` and `coverage==7.17.5`, plus branch-coverage pytest
+  configuration that reports application-source coverage and writes ignored
+  XML, HTML, JSON, and JUnit evidence under `.coverage-reports/`.
+- **Files created or modified:** `requirements.txt`, `.gitignore`,
+  `pytest.ini`, `.coveragerc`, and this file. No application source, tests,
+  database files, CI workflow, or Docker configuration changed.
+- **Validation performed:** On Python 3.12.7, the full existing regression
+  suite with coverage enabled passed: 341 tests passed with one existing
+  Starlette `TestClient` deprecation warning in 56.80 seconds. The measured
+  baseline is 85.94% line coverage (1192/1387 statements) and 77.11% branch
+  coverage (347/450 branches); coverage's combined percentage is 83.78%.
+  `pip check` passed and strict `pip-audit --requirement requirements.txt
+  --strict` reported no known vulnerabilities. The historical database
+  checksum remained unchanged.
+- **Coverage limitations and pending review:** Command-line key/token utilities
+  have no automated execution coverage, and the lowest covered security-relevant
+  areas are offline export verification, redaction validation/projection, and
+  audit-chain/lifecycle error branches. No coverage threshold is enforced in
+  this baseline task. Human review is pending before any commit.
+- **Engineer review and conditional approval:** The engineer reviewed the
+  measured baseline and approved this configuration for commit. Coverage is
+  enabled by default through `pytest.ini`; a focused opt-out run using
+  `python -m pytest -q -o addopts="" tests/test_hashing.py` passed 14 tests
+  without modifying existing coverage evidence. Threshold enforcement and CI
+  artifact publication remain pending future approval.

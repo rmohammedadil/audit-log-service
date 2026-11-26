@@ -3,6 +3,8 @@ pydantic==2.14.4
 SQLAlchemy==2.1.9
 uvicorn[standard]==0.54.0
 pytest==9.2.0
+pytest-cov==7.1.0
+coverage==7.17.5
 httpx==0.28.1
 PyJWT==2.15.0
 cryptography==50.0.0
