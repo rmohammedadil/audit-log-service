@@ -1390,3 +1390,28 @@ The coverage report does not independently establish
 its originating Git revision.
 
 No external evaluation acceptance is claimed.
+
+## Task 39 - CI Coverage Enforcement and Evidence
+
+- **Engineer request and AI contribution:** Updated the existing GitHub Actions
+  regression job to remove prior coverage evidence before testing, retain
+  pytest output and its exit code, run the independent coverage gate only after
+  successful pytest execution, and retain the gate output and exit code. An
+  always-run manifest records the tested SHA, ref, branch, Python version,
+  commands, outcomes, and exit codes. An SHA-pinned `upload-artifact` action
+  uploads available coverage JSON/XML/HTML, JUnit XML, logs, gate evidence, and
+  the manifest even when pytest fails.
+- **Scope and limitations:** Dependency scanning and Docker smoke jobs remain
+  unchanged. Local validation is limited to workflow/documentation syntax and
+  diff checks; no remote workflow run or full regression is claimed by this
+  pending-review task. Coverage artifacts establish CI-run evidence only when
+  reviewed with their manifest and corresponding workflow run.
+
+## Task 39A - Final CI Artifact Configuration Correction
+
+- **Engineer review and AI contribution:** Preserved the Task 39 evidence
+  workflow while correcting its artifact settings for the hidden
+  `.coverage-reports/` directory. The SHA-pinned upload action now explicitly
+  includes hidden files, fails when evidence is unavailable, and requests
+  90-day retention subject to repository policy. Lightweight YAML and Git
+  validation remain pending for this review stage; no test suite was run.

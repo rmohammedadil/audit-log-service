@@ -129,6 +129,32 @@ The initial limits prevent regression from the Task 37C baseline. Future
 improvement targets are 91.5% overall line coverage, 82% overall branch
 coverage, and 90% line / 80% branch coverage for active V4/security modules.
 
+## CI coverage evidence
+
+The GitHub Actions regression job removes `.coverage-reports/` before every
+full pytest run, so a later coverage gate cannot accept a report left by an
+earlier run. After successful pytest execution it runs:
+
+```bash
+python scripts/check_coverage.py .coverage-reports/coverage.json
+```
+
+Either pytest or the independent gate failing fails the regression job. The
+workflow always uploads the available `.coverage-reports/` directory as the
+`regression-evidence-<run>-<attempt>` artifact, including pytest output,
+coverage JSON/XML/HTML, JUnit XML, coverage-gate output where the gate ran,
+exit-code files, and `evidence-manifest.txt`. The manifest records the tested
+SHA, ref, branch, Python version, exact test and gate commands, and observed
+step outcomes/exit codes. Because the directory name is hidden, the artifact
+step explicitly includes hidden files; it fails if the expected evidence
+directory is unavailable and retains artifacts for 90 days, subject to the
+repository's artifact-retention policy.
+
+Artifacts provide CI-run provenance but are not a substitute for reviewing the
+workflow run, source revision, or test output. A failed pytest run can leave
+only partial coverage evidence; in that case the gate is intentionally skipped
+and the manifest records that it did not run.
+
 ## Task 32 focused documentation demonstration
 
 Task 32 executed a separate temporary-database FastAPI `TestClient` example using temporary in-process JWT configuration. It returned HTTP 201 for initial writer creation, HTTP 200 for an identical idempotent replay with the same ID, and HTTP 200 with `isIntact:true` for auditor verification. It emitted the existing TestClient deprecation warning. It was not a substitute for, nor added to, the recorded 341-test full regression baseline.

@@ -7,7 +7,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# This workflow reads source only and neither publishes artifacts nor deploys.
+# This workflow reads source, publishes validation evidence, and never deploys.
 permissions:
   contents: read
 
@@ -38,7 +38,61 @@ jobs:
       - name: Check installed dependency consistency
         run: python -m pip check
       - name: Run full regression suite
-        run: python -m pytest -q -p no:cacheprovider --basetemp "${RUNNER_TEMP}/pytest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        id: pytest
+        shell: bash
+        run: |
+          rm -rf .coverage-reports
+          mkdir -p .coverage-reports
+          set +e
+          set -o pipefail
+          python -m pytest -q -p no:cacheprovider --basetemp "${RUNNER_TEMP}/pytest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" 2>&1 | tee .coverage-reports/pytest.log
+          exit_code="${PIPESTATUS[0]}"
+          printf '%s\n' "$exit_code" > .coverage-reports/pytest.exitcode
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          exit "$exit_code"
+      - name: Enforce independent coverage gates
+        id: coverage_gate
+        if: steps.pytest.outcome == 'success'
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          python scripts/check_coverage.py .coverage-reports/coverage.json 2>&1 | tee .coverage-reports/coverage-gate.log
+          exit_code="${PIPESTATUS[0]}"
+          printf '%s\n' "$exit_code" > .coverage-reports/coverage-gate.exitcode
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+          exit "$exit_code"
+      - name: Record regression evidence manifest
+        if: always()
+        shell: bash
+        env:
+          PYTEST_OUTCOME: ${{ steps.pytest.outcome }}
+          PYTEST_EXIT_CODE: ${{ steps.pytest.outputs.exit_code }}
+          COVERAGE_GATE_OUTCOME: ${{ steps.coverage_gate.outcome }}
+          COVERAGE_GATE_EXIT_CODE: ${{ steps.coverage_gate.outputs.exit_code }}
+        run: |
+          mkdir -p .coverage-reports
+          {
+            echo "git_sha=${GITHUB_SHA}"
+            echo "git_ref=${GITHUB_REF}"
+            echo "git_branch=${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+            echo "python_version=$(python --version 2>&1)"
+            echo "test_command=python -m pytest -q -p no:cacheprovider --basetemp \${RUNNER_TEMP}/pytest-\${GITHUB_RUN_ID}-\${GITHUB_RUN_ATTEMPT}"
+            echo "pytest_step_outcome=${PYTEST_OUTCOME:-not-run}"
+            echo "pytest_exit_code=${PYTEST_EXIT_CODE:-not-recorded}"
+            echo "coverage_gate_command=python scripts/check_coverage.py .coverage-reports/coverage.json"
+            echo "coverage_gate_step_outcome=${COVERAGE_GATE_OUTCOME:-not-run}"
+            echo "coverage_gate_exit_code=${COVERAGE_GATE_EXIT_CODE:-not-recorded}"
+          } > .coverage-reports/evidence-manifest.txt
+      - name: Upload regression coverage and test evidence
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: regression-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .coverage-reports/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
 
   dependency-security:
     name: Dependency vulnerability scan
