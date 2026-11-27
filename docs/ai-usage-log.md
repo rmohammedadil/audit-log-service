@@ -1463,3 +1463,18 @@ No external evaluation acceptance is claimed.
   Markdown-link, local-evidence-path, and Git diff validation passed; no
   regression suite was run. The historical database checksum remained
   `B0401EBDF6E7A1A65B9E6CB4667A7E0A64D12A94D5D28E8AD3755FC5A2DCC96A`.
+
+## Task 53A - Final Attestation Preparation
+
+- **Engineer request and AI contribution:** Revised `ATTESTATION.md` into a
+  concise formal attestation identifying the repository, branch, tested
+  application revision, Scenario A/B/C scope, mapped engineering evidence,
+  recorded ChatGPT/Codex assistance, reuse-confirmation requirement, Task 51
+  results, limitations, and separate final-manifest requirement. The mandatory
+  ownership declaration was preserved verbatim.
+- **Scope and limitations:** No signature, archive, final-submission SHA,
+  actual remediation-submission timestamp, application code, tests,
+  dependencies, database, or CI configuration was changed. Candidate
+  confirmation remains required for reused-material disclosure before final
+  submission. The final attestation intentionally summarizes limitations and
+  directs readers to `ENGINEERING_SUMMARY.md` and `docs/testing.md` for detail.
