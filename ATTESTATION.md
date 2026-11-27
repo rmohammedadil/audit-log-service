@@ -1,4 +1,4 @@
-# Attestation
+# Final Repository Attestation
 
 **Full Name:** R Mohammed Adil
 
@@ -8,59 +8,99 @@
 
 **Assignment Start Date:** 23 November 2026
 
-**Original Submission Date:** 26 November 2026
+**Original Submission Date:** 26 November 2026, 12:30 PM IST (UTC+05:30)
 
-**Original Submission Time:** 12:30 PM IST (UTC+05:30)
+**Resubmission Date:** 27 November 2026
 
 ## Declaration
 
 I, R Mohammed Adil, attest that this submission is my own individual work, completed on my own machine and accounts, and that it honestly reflects my development process and use of AI.
 
-## Reviewed Revision and Finalization
+## Repository and Implementation Scope
 
 - **Repository:** https://github.com/rmohammedadil/audit-log-service.git
+  (private; submitted to the panel with read access)
 - **Branch:** `main`
-- **Tested application revision:**
-  `3b0eb5d6601e3c74f938ad8afedabf4f99140c2b`
+- **Validated application revision:**
+  `78a19710a9bcd21b9fa5624ea93b83a8bf79116f`
+- **Final submission revision:** annotated tag `submission-final`
+  (resolve with `git rev-list -n1 submission-final`). This attestation is
+  committed in that revision, a documentation-only descendant of the validated
+  application revision.
+- **Scope:** Scenario A (core audit log and chain verification), Scenario B
+  (retention, redaction, independently verifiable export), and Scenario C
+  (recorded client-account access reporting). The supported runtime is the
+  tenant-aware V4 application (`app.main:app` → `app.v4_main`); legacy V3
+  routes are not mounted.
 
-The tested application revision is distinct from the final remediation
-submission commit. A separate final submission manifest will record the final
-commit SHA, archive SHA-256, actual submission timestamp, and candidate
-signature after repository finalization. This document does not claim that the
-final remediation submission has already occurred.
+The application, test, dependency, and CI inputs are byte-identical between
+`3b0eb5d6601e3c74f938ad8afedabf4f99140c2b` (where the Task 51 validation ran)
+and `78a19710a9bcd21b9fa5624ea93b83a8bf79116f`:
 
-## Submitted Implementation Scope
+```text
+git diff --stat 3b0eb5d..78a1971 -- app/ scripts/ requirements.txt pytest.ini .coveragerc .github/
+# (no output)
+```
 
-The work covers Scenario A: core audit logging and integrity verification;
-Scenario B: logical retention, redaction, and exports; and Scenario C: recorded
-client-account access reporting. The supported runtime is the tenant-aware V4
-application with tenant-specific integrity chains, JWT authentication, active
-membership checks, and explicit resource or tenant permissions.
+Submission is via the private repository; no archive is used. If an archive is
+also supplied, its SHA-256 must be recorded here before submission.
 
-Material engineering claims, their source references, automated tests,
-validation evidence, and limitations are mapped in
-[docs/claim-evidence-mapping.md](docs/claim-evidence-mapping.md).
+## Engineering Evidence
 
-## AI Assistance and Reused Material
-
-The development record in [docs/ai-usage-log.md](docs/ai-usage-log.md)
-discloses the use of ChatGPT and Codex for prompts, planning, code and test
-generation or revision, documentation, review support, and validation
-assistance. The candidate retained responsibility for task approvals, local
-execution, review decisions, and commit authorization.
-
-The AI usage log records AI-assisted generated and revised material. Candidate
-confirmation is required before final submission that any reused third-party
-code, template, assessment material, or other material requiring attribution
-has been accurately disclosed. This attestation does not invent a claim of no
-reuse.
-
-## Validation and Limitations
-
-At the tested application revision, Task 51 recorded 475 passing tests in
-85.09 seconds, Python 3.12.7, 90.14% line coverage, 79.12% branch coverage,
-all project-defined coverage gates passing, and 25 successful live HTTP checks.
-Supporting validation details are in [docs/testing.md](docs/testing.md) and
+Material engineering claims are mapped to implementation references, automated
+tests, validation evidence, and limitations in
+[docs/claim-evidence-mapping.md](docs/claim-evidence-mapping.md). Supporting
+development and validation records are available in
+[docs/ai-usage-log.md](docs/ai-usage-log.md),
+[docs/testing.md](docs/testing.md), and
 [ENGINEERING_SUMMARY.md](ENGINEERING_SUMMARY.md).
 
-Known limitations include SQLite deployment constraints, privileged database access risks, and redaction and offline-export verification boundaries. Detailed limitations and validation status are documented in ENGINEERING_SUMMARY.md and docs/testing.md.
+## AI Assistance and Reuse Disclosure
+
+ChatGPT and Codex assisted with prompts, planning, code and test generation or
+revision, documentation, review support, and validation assistance. The
+candidate retained responsibility for implementation decisions, local
+execution, review, approval, and commit authorization. The detailed record is
+in [docs/ai-usage-log.md](docs/ai-usage-log.md).
+
+The candidate confirms that no third-party source code, templates, or another
+candidate's assessment implementation were reused or used as a design
+reference, apart from disclosed AI assistance and standard project
+dependencies.
+
+## Verified Validation Evidence
+
+- **Validation revision:** `78a19710a9bcd21b9fa5624ea93b83a8bf79116f`
+  (application inputs identical to `3b0eb5d`, where Task 51 ran).
+- **Command:** `python -m pytest -q -p no:cacheprovider`
+- **Environment:** Python 3.12.7, 27 November 2026, exit code 0.
+- **Regression:** 475 passed, 0 failed, 1 existing Starlette/TestClient
+  deprecation warning.
+- **Coverage:** 90.14% line (1930/2141) and 79.12% branch (538/680).
+  Independent gate
+  `python scripts/check_coverage.py .coverage-reports/coverage.json`
+  exited 0, including every per-module line and branch threshold.
+- **Live validation:** 25 successful local live HTTP checks using a fresh V4
+  database and disposable credentials.
+- **Remote CI (green):** all three jobs passed — regression (475 tests plus the
+  independent coverage gate), dependency vulnerability scan
+  (`pip-audit --strict`), and Docker runtime smoke test — and the
+  regression-evidence artifact was published.
+- **GitHub Actions run:**
+  https://github.com/rmohammedadil/audit-log-service/actions/runs/45934437700
+- **Evidence artifact:**
+  https://github.com/rmohammedadil/audit-log-service/actions/runs/45934437700/artifacts/15169658552
+
+## Limitations
+
+Known limitations include SQLite deployment constraints, privileged database
+access risks, and redaction and offline-export verification boundaries. Detailed
+limitations and validation status are documented in
+[ENGINEERING_SUMMARY.md](ENGINEERING_SUMMARY.md) and
+[docs/testing.md](docs/testing.md).
+
+## Candidate Signature
+
+**Signature:** R Mohammed Adil
+
+**Signature date:** 27 November 2026

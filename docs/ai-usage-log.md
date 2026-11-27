@@ -1478,3 +1478,17 @@ No external evaluation acceptance is claimed.
   confirmation remains required for reused-material disclosure before final
   submission. The final attestation intentionally summarizes limitations and
   directs readers to `ENGINEERING_SUMMARY.md` and `docs/testing.md` for detail.
+
+## Task 53D - Final Repository Attestation
+
+- **Engineer request and AI contribution:** Moved the finalized attestation
+  evidence into the tracked `ATTESTATION.md` so a repository archive contains
+  the candidate identity, mandatory ownership declaration, Scenario A/B/C
+  scope, validated revision, AI-assistance and reuse disclosure, evidence
+  references, Task 51 results, remote CI links, limitations, and blank
+  candidate-signature fields.
+- **Scope and limitations:** This documentation-only update does not claim a
+  new test run, submission timestamp, archive checksum, or candidate signature.
+  The validated application revision remains
+  `78a19710a9bcd21b9fa5624ea93b83a8bf79116f`; the eventual archive revision and
+  checksum must be established externally after final repository archival.
