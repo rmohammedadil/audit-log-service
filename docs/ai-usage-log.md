@@ -1427,3 +1427,26 @@ No external evaluation acceptance is claimed.
   `tests/test_export_service.py` passed: 37 tests in 2.41 seconds, with
   coverage collection disabled. This correction does not alter valid digest,
   signature, or legacy bundle verification behavior.
+
+## Task 51 - Final Regression and End-to-End Validation
+
+- **Engineer request and AI contribution:** Committed the Task 50A verifier
+  correction as `3b0eb5d6601e3c74f938ad8afedabf4f99140c2b`, then ran the full
+  configured regression with a fresh external pytest base directory and
+  preserved output, exit status, coverage reports, JUnit report, command, and
+  coverage-gate result under ignored `.coverage-reports/` evidence files.
+- **Validation:** Full regression passed: 475 tests in 85.09 seconds, exit 0,
+  with one existing TestClient deprecation warning. Coverage was 1930/2141
+  lines (90.14%) and 538/680 branches (79.12%); the independent overall,
+  critical-module, and legacy-verifier gate passed. A disposable Uvicorn/httpx
+  run completed 25 live checks covering operational endpoints, token rejection,
+  tenant and resource isolation, creation/replay/conflict, verification,
+  retention, redaction, signed export plus trusted offline verification,
+  reporting, and grant revocation. The first harness attempt used an invalid
+  noncanonical access payload and was corrected before the passing run; this
+  was a harness-input error, not an application change.
+- **Limitations:** Docker and remote CI were not executed. Temporary database,
+  signing keys, export bundle, and harness were removed; sanitized external
+  reports remain. Pre-existing Uvicorn processes on port 8001 were observed
+  during cleanup and left untouched because they were not started by the
+  random-port validation harness.
