@@ -3,6 +3,22 @@
 This document records test evidence for the functional prototype. It does not
 claim production readiness, tamper-proof storage, or regulatory certification.
 
+## Task 51 final local validation
+
+The latest complete local application validation tested revision
+`3b0eb5d6601e3c74f938ad8afedabf4f99140c2b`: **475 passed** in 85.09 seconds,
+exit code 0, using Python 3.12.7 and one existing TestClient deprecation
+warning. It measured **90.14% line coverage** and **79.12% branch coverage**;
+all configured overall, critical-module, and legacy-verifier thresholds passed.
+The separate live Uvicorn/httpx validation completed **25 checks** using a
+fresh V4 database and disposable credentials. The historical database checksum
+remained `B0401EBDF6E7A1A65B9E6CB4667A7E0A64D12A94D5D28E8AD3755FC5A2DCC96A`.
+
+Local evidence paths are listed in [claim-evidence-mapping.md](claim-evidence-mapping.md).
+They are ignored artifacts, not committed files or remotely available evidence.
+The Task 51 `pip-audit` invocation did not return a captured final result;
+remote CI and Docker runtime validation are not claimed by this result.
+
 ## Task 36F cutover evidence
 
 - The latest complete local cutover regression passed **428 tests** with one

@@ -55,13 +55,16 @@ accesses were logged. JWT roles are writer, auditor, regulator, and admin.
 
 ## Validation and evidence
 
-The latest recorded cutover regression is 428 passing tests with one existing
-TestClient deprecation warning. Earlier 24 selected Task 31 acceptance tests
-were a subset of the then-current suite, not an additional count. Recorded
-checks include
-`compileall`, `pip check`, and strict local `pip-audit` with no known
-vulnerabilities. The developer confirmed a successful post-remediation GitHub
-Actions run; Task 31 could not independently retrieve its run ID or job logs.
+Task 51 validated application revision
+`3b0eb5d6601e3c74f938ad8afedabf4f99140c2b`: 475 tests passed in 85.09
+seconds, exit code 0, with one existing TestClient deprecation warning. It
+measured 90.14% line coverage and 79.12% branch coverage; all configured
+coverage gates passed. A separate disposable live HTTP run passed 25 checks.
+`compileall`, `pip check`, and `git diff --check` passed. The Task 51
+`pip-audit` invocation did not produce a captured final result, so dependency
+security is not claimed as revalidated by that task. Remote CI and Docker
+runtime validation remain pending. Later documentation commits do not change
+the tested application revision.
 
 ## AI-assisted development and human oversight
 

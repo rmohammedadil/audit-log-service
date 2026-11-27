@@ -120,9 +120,13 @@ query parameters, status codes, and examples.
 
 ## Run tests
 
-The latest recorded cutover regression is 428 passing tests with one existing
-TestClient deprecation warning. This is a single full-suite count, not a
-coverage percentage. Use the project virtual environment:
+Task 51 validated application revision
+`3b0eb5d6601e3c74f938ad8afedabf4f99140c2b`: **475 passing tests** in 85.09
+seconds, exit code 0, with one existing TestClient deprecation warning. It
+measured 90.14% line coverage and 79.12% branch coverage; all configured
+coverage thresholds passed. This is a single full-suite count, not a combined
+count with selected acceptance checks. Later documentation commits do not
+change the tested application revision. Use the project virtual environment:
 
 ```bash
 python -m pytest -q
@@ -165,6 +169,7 @@ review.
 | [docs/system-design.md](docs/system-design.md) | Low-level design and algorithms |
 | [docs/requirements.md](docs/requirements.md) | Recovered requirements and historical decisions |
 | [docs/testing.md](docs/testing.md) | Validation evidence and traceability |
+| [docs/claim-evidence-mapping.md](docs/claim-evidence-mapping.md) | Source, test, and validation traceability for engineering claims |
 | [docs/api-reference.md](docs/api-reference.md) | Endpoint contract |
 | [docs/security.md](docs/security.md) | Security model and residual risks |
 | [docs/walkthrough.md](docs/walkthrough.md) | Live-assessment demonstration |
