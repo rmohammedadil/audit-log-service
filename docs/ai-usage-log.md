@@ -1298,3 +1298,95 @@ The regression results do not establish the absence
 of all possible security vulnerabilities.
 
 No external evaluation acceptance is claimed.
+
+## Task 38B - Independent line and branch coverage enforcement
+
+- **Engineer request and AI contribution:** Added a standard-library coverage
+  gate at `scripts/check_coverage.py`. It reads coverage.py JSON without
+  changing it, independently calculates line and branch ratios from raw counts,
+  validates file-level totals and source inventory, and returns a nonzero exit
+  code for invalid evidence or threshold failures.
+- **Threshold decision:** The initial gate requires 90% overall line coverage,
+  78% overall branch coverage, and 85% line / 70% branch coverage for each
+  listed V4/security module. The legacy-compatible verifier has 80% line / 60%
+  branch floors. Modules without executable branches are explicitly reported as
+  branch N/A. Token and export-key CLI modules remain in overall coverage but
+  await Task 38C tests before individual thresholds are introduced.
+- **Regression coverage and validation:** Added 15 synthetic-artifact tests for
+  passing evidence, independent overall and module failures, legacy-verifier
+  failures, missing source/modules, disabled branches, malformed evidence,
+  inconsistent counts, zero-branch modules, exact boundaries, rounding, and
+  documented process exit codes. They passed with coverage collection disabled
+  in 0.21 seconds. The gate also passed against the preserved Task 37C
+  artifact: 1920/2133 lines (90.01%) and 534/678 branches (78.76%).
+- **Limitations:** Coverage JSON does not establish its originating Git
+  revision or pytest command. CI integration and artifact publication remain
+  deferred to later tasks; this task did not run the full regression or claim
+  evaluation acceptance.
+
+## Task 38C - Targeted coverage improvements
+
+- **Engineer request and AI contribution:** Added focused V4 regressions for
+  an authorized idempotency fingerprint conflict, route rollback and sanitized
+  unexpected append errors, missing-JWT rejection across every supported audit
+  operation, and malformed V4 selected-record evidence after a recomputed
+  bundle digest. Existing lifecycle metadata-deletion tests already exercise
+  the requested lifecycle fail-closed paths, so they were retained rather than
+  duplicated.
+- **Validation:** `tests/test_v4_routes.py` and
+  `tests/test_v4_export_verification.py` passed: 55 tests in 18.11 seconds,
+  with the existing Starlette/TestClient deprecation warning. Coverage
+  collection was disabled to preserve the Task 37C baseline artifact. No
+  application behavior, coverage thresholds, exclusions, CI configuration, or
+  historical database was changed by this test-only task.
+
+## Task 38D - Full Regression and Coverage Gate Validation
+
+Date: 2026-11-27
+
+### AI Assistance and Developer Ownership
+
+ChatGPT reviewed the reported Task 38B and Task 38C
+results and prepared manual regression and validation
+commands to conserve Codex usage.
+
+The developer manually executed the complete regression,
+coverage gate, repository checks and database checksum
+verification in the local Windows Git Bash environment.
+
+### Validation Results
+
+- Baseline HEAD: 7d11b8e76efb6db9e7726bec3c3873804f389da1
+- Python version: 3.12.7
+- Full regression: 468 passed, 0 failed
+- Existing TestClient deprecation warning: 1
+- Pytest exit code: 0
+- Execution duration: 87.92 seconds
+- Line coverage: 1921/2133 (90.06%)
+- Branch coverage: 535/678 (78.91%)
+- Combined coverage: 87.37%
+- Coverage gate exit code: 0
+- All configured overall and per-module gates passed.
+- Previous full regression: 441 passing tests.
+- Additional passing tests: 27.
+- Historical database checksum unchanged.
+- Git diff check passed.
+
+### Evidence
+
+- .coverage-reports/task38d-regression.log
+- .coverage-reports/task38d-regression.exitcode
+- .coverage-reports/coverage.json
+- .coverage-reports/coverage.xml
+- .coverage-reports/html/index.html
+
+### Limitations
+
+Coverage thresholds are locally enforced and passed.
+CI enforcement, artifact publication, final requirements
+traceability and independent security review remain pending.
+
+The coverage report does not independently establish
+its originating Git revision.
+
+No external evaluation acceptance is claimed.

@@ -372,6 +372,53 @@ def test_v4_cross_resource_idempotency_conflict_does_not_bypass_authorization(cl
     with Session(engine) as session:
         assert session.query(V4AuditEvent).count()==1 and session.get(V4TenantChainState,"tenant-a").event_count==1
 
+def test_v4_idempotency_fingerprint_conflict_preserves_the_original_event(client):
+    """A permitted retry may replay only the identical validated request."""
+
+    api,engine=client
+    key={"Idempotency-Key":"fingerprint-conflict"}
+    first=api.post("/audit/events",json=EVENT,headers=headers("writer","writer","tenant-a")|key)
+    conflict=api.post("/audit/events",json={**EVENT,"payload":{"x":2}},headers=headers("writer","writer","tenant-a")|key)
+    assert first.status_code==201
+    assert conflict.status_code==409
+    assert conflict.json()=={"detail":"Idempotency key conflicts with a different request"}
+    with Session(engine) as session:
+        events=list(session.scalars(select(V4AuditEvent).where(V4AuditEvent.tenant_id=="tenant-a")))
+        assert len(events)==1 and events[0].payload=={"x":1}
+        assert session.get(V4TenantChainState,"tenant-a").event_count==1
+
+def test_v4_create_rolls_back_and_sanitizes_unexpected_append_errors(client, monkeypatch):
+    """Route failures must neither retain writes nor disclose internal errors."""
+
+    api,engine=client
+    import app.api.v4_audit_routes as routes
+    def fail_append(*args, **kwargs):
+        raise RuntimeError("database-password=do-not-disclose")
+    monkeypatch.setattr(routes,"append_v4_audit_event",fail_append)
+    response=api.post("/audit/events",json=EVENT,headers=headers("writer","writer","tenant-a"))
+    assert response.status_code==500
+    assert response.json()=={"detail":"Audit event creation failed"}
+    assert "password" not in response.text
+    with Session(engine) as session:
+        assert session.query(V4AuditEvent).count()==0
+        assert session.get(V4TenantChainState,"tenant-a") is None
+
+@pytest.mark.parametrize("method,path,body",[
+    ("GET","/audit/events",None),
+    ("POST","/audit/events",EVENT),
+    ("GET","/audit/verify",None),
+    ("POST","/audit/exports",{"resourceId":"account-1"}),
+    ("POST","/audit/retention/run",None),
+    ("GET","/audit/access-reports?from=2020-01-01T00:00:00Z&to=2030-01-01T00:00:00Z",None),
+    ("POST","/audit/events/not-an-event-ref/redact",{"paths":["/x"],"reason":"PRIVACY_REQUEST"}),
+])
+def test_v4_audit_operations_reject_missing_jwts_without_writes(client,method,path,body):
+    api,engine=client
+    response=api.request(method,path,json=body)
+    assert response.status_code==401
+    with Session(engine) as session:
+        assert session.query(V4AuditEvent).count()==0
+
 @pytest.mark.parametrize("kind",["events","exports","reports"])
 def test_v4_read_snapshots_are_consistent_during_concurrent_grant_revocation(client,monkeypatch,kind):
     api,engine=client

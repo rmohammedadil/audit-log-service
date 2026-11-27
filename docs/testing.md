@@ -88,6 +88,47 @@ The 341-test final regression baseline is a single full-suite count. The 24 sele
 
 The existing Starlette/TestClient deprecation warning is recorded, not hidden. No load/throughput benchmark, production monitoring test, or independently retrieved remote CI job log is claimed.
 
+## Independent coverage thresholds
+
+`scripts/check_coverage.py` evaluates coverage.py JSON evidence without relying
+on coverage's combined percentage. It independently requires overall line
+coverage of at least **90%** and overall branch coverage of at least **78%**.
+It also requires each active V4/security module below to meet **85%** line and
+**70%** branch coverage, except that a module with no executable branches is
+reported as branch `N/A`.
+
+- `app/auth.py`, `app/authorization_models.py`,
+  `app/authorization_service.py`, and `app/permissions.py`
+- `app/api/v4_audit_routes.py`
+- `app/services/v4_audit_service.py` and
+  `app/services/v4_export_service.py`
+- `app/v4_database.py`, `app/v4_database_dependency.py`, `app/v4_main.py`,
+  `app/v4_models.py`, and `app/v4_schemas.py`
+- `app/verify_v4_export.py`, `app/export_signing.py`, and
+  `app/manage_grants.py`
+
+The legacy-compatible `app/verify_export.py` has separate initial floors of
+**80%** line and **60%** branch coverage. Token and export-key generation CLIs
+remain in overall coverage but do not yet have individual gates pending their
+Task 38C coverage work.
+
+Run the gate against existing evidence with:
+
+```bash
+python scripts/check_coverage.py .coverage-reports/coverage.json
+```
+
+The gate validates raw counts, requires branch coverage, checks the source-file
+inventory, and fails on malformed or inconsistent evidence. Coverage's combined
+percentage is not sufficient because it can conceal a regression in either line
+or branch coverage. A coverage JSON file records execution evidence but does
+not prove the Git revision or test command that produced it; freshness must be
+established separately by the surrounding CI or validation record.
+
+The initial limits prevent regression from the Task 37C baseline. Future
+improvement targets are 91.5% overall line coverage, 82% overall branch
+coverage, and 90% line / 80% branch coverage for active V4/security modules.
+
 ## Task 32 focused documentation demonstration
 
 Task 32 executed a separate temporary-database FastAPI `TestClient` example using temporary in-process JWT configuration. It returned HTTP 201 for initial writer creation, HTTP 200 for an identical idempotent replay with the same ID, and HTTP 200 with `isIntact:true` for auditor verification. It emitted the existing TestClient deprecation warning. It was not a substitute for, nor added to, the recorded 341-test full regression baseline.

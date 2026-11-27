@@ -49,6 +49,21 @@ def test_redacted_record_has_explicit_nonrecomputed_limit():
     data=bundle(); data["records"][0]["payload"]={"x":"[REDACTED]"}; data["records"][0]["redactedPaths"]=["/x"]; data["bundleDigest"]=calculate_bundle_digest(data)
     assert verify_v4_bundle(data)["isValid"]
 
+@pytest.mark.parametrize("mutation",["non-object-record","missing-timestamp","invalid-timestamp"])
+def test_malformed_v4_export_records_fail_closed(mutation):
+    """A recomputed bundle digest cannot make malformed selected evidence valid."""
+
+    data=bundle()
+    if mutation=="non-object-record":
+        data["records"]=["not-an-object"]
+    elif mutation=="missing-timestamp":
+        data["records"][0].pop("timestamp")
+    else:
+        data["records"][0]["timestamp"]="not-a-UTC-timestamp"
+    data["bundleDigest"]=calculate_bundle_digest(data)
+    with pytest.raises(BundleVerificationError):
+        verify_v4_bundle(data)
+
 def test_existing_cli_dispatches_v4_without_breaking_legacy_verifier(tmp_path):
     path=tmp_path/"v4.json"; path.write_text(json.dumps(bundle()),encoding="utf-8")
     assert verify_cli([str(path)])==0
