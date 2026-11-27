@@ -148,7 +148,7 @@ The 475-test final regression baseline is a single full-suite count. The 24 sele
 | API/integration | `test_audit_routes.py`: JWT/RBAC, OpenAPI, creation, query, verify, lifecycle endpoints, reports, idempotency, sanitized errors, request logging. |
 | Lifecycle | `test_retention_service.py`, `test_redaction_service.py`: eligibility, atomicity, metadata integrity, masking, no-op behavior. |
 | Export/crypto | `test_export_service.py`: witness/digest, redaction/archive projection, Ed25519 signing, wrong key, downgrade and tamper rejection. |
-| Operational/security | Auth, request-ID/logging, SQLite write coordination, `compileall`, `pip check`, strict local `pip-audit`; Docker smoke coverage is developer-confirmed through CI. |
+| Operational/security | Auth, request-ID/logging, SQLite write coordination, `compileall`, `pip check`, strict local `pip-audit`; Docker smoke coverage runs in CI (run 45934437700). |
 
 The existing Starlette/TestClient deprecation warning is recorded, not hidden. The remote CI run and artifact are cited above; no load/throughput benchmark or production monitoring test is claimed.
 
