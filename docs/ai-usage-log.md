@@ -1415,3 +1415,15 @@ No external evaluation acceptance is claimed.
   includes hidden files, fails when evidence is unavailable, and requests
   90-day retention subject to repository policy. Lightweight YAML and Git
   validation remain pending for this review stage; no test suite was run.
+
+## Task 50A - Offline V4 Verifier Error Handling
+
+- **Task 50 finding and AI contribution:** The read-only review identified that
+  malformed V4 bundle sections could raise raw `TypeError` or `ValueError`
+  outside the verifier's controlled `BundleVerificationError` boundary. Added
+  explicit list validation for selected records, explicit witness scheme
+  validation, and narrow conversion for malformed tenant and chain inputs.
+- **Validation:** `tests/test_v4_export_verification.py` and
+  `tests/test_export_service.py` passed: 37 tests in 2.41 seconds, with
+  coverage collection disabled. This correction does not alter valid digest,
+  signature, or legacy bundle verification behavior.

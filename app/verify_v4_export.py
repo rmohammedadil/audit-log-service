@@ -28,18 +28,26 @@ def verify_v4_bundle(bundle: object, expected_digest: str|None=None, public_key_
             if signature.get("keyId") != key_id: raise ValueError()
             public.verify(base64.b64decode(signature["value"],validate=True),signing_message(digest))
         except (OSError,ValueError,TypeError,InvalidSignature): raise BundleVerificationError("signature verification failed") from None
-    witness=bundle.get("chainWitness"); checkpoint=bundle.get("checkpoint"); scheme=bundle.get("hashScheme")
-    if not isinstance(witness,list) or not isinstance(checkpoint,dict) or not isinstance(scheme,dict) or scheme.get("version")!=V4_HASH_SCHEME_VERSION: raise BundleVerificationError("invalid V4 evidence")
+    witness=bundle.get("chainWitness"); checkpoint=bundle.get("checkpoint"); scheme=bundle.get("hashScheme"); records=bundle.get("records")
+    if not isinstance(witness,list) or not isinstance(checkpoint,dict) or not isinstance(scheme,dict) or not isinstance(records,list) or scheme.get("version")!=V4_HASH_SCHEME_VERSION: raise BundleVerificationError("invalid V4 evidence")
     tenant=scheme.get("tenantId")
     if not isinstance(tenant,str): raise BundleVerificationError("tenant binding missing")
-    previous=v4_genesis_chain_hash(tenant)
+    try:
+        previous=v4_genesis_chain_hash(tenant)
+    except (TypeError, ValueError):
+        raise BundleVerificationError("tenant binding is invalid") from None
     for sequence,row in enumerate(witness,1):
         if not isinstance(row,dict) or row.get("tenantSequence")!=sequence: raise BundleVerificationError("tenant sequence mismatch")
-        if calculate_v4_chain_hash(tenant_id=tenant,tenant_sequence=sequence,content_hash=_require_digest(row.get("contentHash"),"contentHash"),previous_chain_hash=previous,hash_scheme_version=row.get("hashSchemeVersion"))!=row.get("chainHash"): raise BundleVerificationError("chain witness mismatch")
+        if row.get("hashSchemeVersion")!=V4_HASH_SCHEME_VERSION: raise BundleVerificationError("unsupported V4 witness hash scheme")
+        try:
+            chain=calculate_v4_chain_hash(tenant_id=tenant,tenant_sequence=sequence,content_hash=_require_digest(row.get("contentHash"),"contentHash"),previous_chain_hash=previous,hash_scheme_version=row["hashSchemeVersion"])
+        except (TypeError, ValueError):
+            raise BundleVerificationError("chain witness is malformed") from None
+        if chain!=row.get("chainHash"): raise BundleVerificationError("chain witness mismatch")
         previous=row["chainHash"]
     if checkpoint.get("eventCount")!=len(witness) or checkpoint.get("headChainHash")!=(previous if witness else None): raise BundleVerificationError("checkpoint mismatch")
     hashes=set(); witness_by_hash={row["contentHash"]:row for row in witness}
-    for record in bundle.get("records",[]):
+    for record in records:
         if not isinstance(record,dict) or record.get("contentHash") in hashes or record.get("contentHash") not in witness_by_hash or record.get("eventRef")!=witness_by_hash[record.get("contentHash")].get("eventRef"): raise BundleVerificationError("selected-record membership mismatch")
         hashes.add(record["contentHash"])
         # A masked record cannot prove its original content hash offline; it is
@@ -49,4 +57,4 @@ def verify_v4_bundle(bundle: object, expected_digest: str|None=None, public_key_
                 timestamp=datetime.fromisoformat(record["timestamp"].replace("Z","+00:00"))
                 if calculate_v4_content_hash(tenant_id=tenant,event_ref=record["eventRef"],event_type=record["eventType"],actor_id=record["actorId"],resource_type=record["resourceType"],resource_id=record["resourceId"],payload=record["payload"],timestamp=timestamp)!=record["contentHash"]: raise BundleVerificationError("selected content hash mismatch")
             except (KeyError,TypeError,ValueError): raise BundleVerificationError("selected record malformed") from None
-    return {"isValid":True,"recordCount":len(bundle.get("records",[])),"bundleDigest":digest}
+    return {"isValid":True,"recordCount":len(records),"bundleDigest":digest}

@@ -64,6 +64,39 @@ def test_malformed_v4_export_records_fail_closed(mutation):
     with pytest.raises(BundleVerificationError):
         verify_v4_bundle(data)
 
+@pytest.mark.parametrize("mutation",["null-records","non-list-records","missing-witness-scheme","unsupported-witness-scheme","blank-tenant"])
+def test_v4_bundle_structural_evidence_failures_are_controlled(mutation):
+    """Recomputed digests must not turn malformed bundle sections into crashes."""
+
+    data=bundle()
+    if mutation=="null-records":
+        data["records"]=None
+    elif mutation=="non-list-records":
+        data["records"]={}
+    elif mutation=="missing-witness-scheme":
+        data["chainWitness"][0].pop("hashSchemeVersion")
+    elif mutation=="unsupported-witness-scheme":
+        data["chainWitness"][0]["hashSchemeVersion"]="unsupported-v4-scheme"
+    else:
+        data["hashScheme"]["tenantId"]=""
+    data["bundleDigest"]=calculate_bundle_digest(data)
+    with pytest.raises(BundleVerificationError):
+        verify_v4_bundle(data)
+
+@pytest.mark.parametrize("mutation",["null-records","unsupported-witness-scheme"])
+def test_v4_cli_reports_malformed_evidence_without_a_traceback(tmp_path,capsys,mutation):
+    data=bundle()
+    if mutation=="null-records":
+        data["records"]=None
+    else:
+        data["chainWitness"][0]["hashSchemeVersion"]="unsupported-v4-scheme"
+    data["bundleDigest"]=calculate_bundle_digest(data)
+    path=tmp_path/"malformed-v4.json"; path.write_text(json.dumps(data),encoding="utf-8")
+    assert verify_cli([str(path)])==1
+    captured=capsys.readouterr()
+    assert "verification failed:" in captured.err
+    assert "Traceback" not in captured.err
+
 def test_existing_cli_dispatches_v4_without_breaking_legacy_verifier(tmp_path):
     path=tmp_path/"v4.json"; path.write_text(json.dumps(bundle()),encoding="utf-8")
     assert verify_cli([str(path)])==0
