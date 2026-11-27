@@ -3,7 +3,22 @@
 This document records test evidence for the functional prototype. It does not
 claim production readiness, tamper-proof storage, or regulatory certification.
 
-## Task 51 final local validation
+## Current submission evidence
+
+The validated application revision is
+`78a19710a9bcd21b9fa5624ea93b83a8bf79116f`. The application, test, dependency,
+and CI inputs are byte-identical to
+`3b0eb5d6601e3c74f938ad8afedabf4f99140c2b`, where the Task 51 validation ran:
+
+```text
+git diff --stat 3b0eb5d..78a1971 -- app/ scripts/ requirements.txt pytest.ini .coveragerc .github/
+# (no output)
+```
+
+The final submission revision is the documentation-only tag `submission-final`
+(resolve with `git rev-list -n1 submission-final`).
+
+### Task 51 final local validation
 
 The latest complete local application validation tested revision
 `3b0eb5d6601e3c74f938ad8afedabf4f99140c2b`: **475 passed** in 85.09 seconds,
@@ -14,12 +29,38 @@ The separate live Uvicorn/httpx validation completed **25 checks** using a
 fresh V4 database and disposable credentials. The historical database checksum
 remained `B0401EBDF6E7A1A65B9E6CB4667A7E0A64D12A94D5D28E8AD3755FC5A2DCC96A`.
 
-Local evidence paths are listed in [claim-evidence-mapping.md](claim-evidence-mapping.md).
-They are ignored artifacts, not committed files or remotely available evidence.
-The Task 51 `pip-audit` invocation did not return a captured final result;
-remote CI and Docker runtime validation are not claimed by this result.
+### Reproduced at submission
+
+On 27 November 2026 the suite was re-run at `78a1971` in a clean Python 3.12.7
+virtual environment:
+
+```bash
+python -m pytest -q -p no:cacheprovider
+python scripts/check_coverage.py .coverage-reports/coverage.json
+```
+
+Result: **475 passed**, exit code 0, **90.14% line** (1930/2141) and
+**79.12% branch** (538/680) coverage; the independent gate exited 0, including
+every per-module threshold.
+
+### Remote CI evidence
+
+The GitHub Actions run
+[45934437700](https://github.com/rmohammedadil/audit-log-service/actions/runs/45934437700)
+is green: the regression job (475 tests plus the independent coverage gate),
+the dependency vulnerability scan (`pip-audit --strict`), and the Docker
+runtime smoke test all passed. The regression-evidence artifact was published at
+[artifacts/15169658552](https://github.com/rmohammedadil/audit-log-service/actions/runs/45934437700/artifacts/15169658552).
+
+Local Task 51 evidence paths are listed in
+[claim-evidence-mapping.md](claim-evidence-mapping.md); they are ignored
+artifacts, while the CI run above is the remotely available evidence.
 
 ## Task 36F cutover evidence
+
+> **Historical (superseded).** Retained as development history. The current
+> evidence is the 475-test Task 51 run above; these 428-test figures are not the
+> submission baseline.
 
 - The latest complete local cutover regression passed **428 tests** with one
   existing Starlette/TestClient deprecation warning. This supersedes earlier
@@ -30,11 +71,15 @@ remote CI and Docker runtime validation are not claimed by this result.
 - `compileall`, `pip check`, and `git diff --check` passed during cutover
   validation. The historical `audit_log.db` checksum remained
   `B0401EBDF6E7A1A65B9E6CB4667A7E0A64D12A94D5D28E8AD3755FC5A2DCC96A`.
-- Docker runtime smoke execution remains pending because Docker was unavailable
-  locally. Static Compose/workflow and Git Bash syntax checks are not a Docker
-  runtime result.
+- At the time of that cutover, Docker runtime smoke execution was pending
+  because Docker was unavailable locally; the current container-smoke evidence
+  is the green CI run cited above. Static Compose/workflow and Git Bash syntax
+  checks are not a Docker runtime result.
 
 ## Evidence status
+
+> **Historical (superseded).** This section records the Task 31 review state.
+> It is not the submission evidence; see "Current submission evidence" above.
 
 - Local commit and `origin/main` both resolve to
   `82d88adc658b3a55e7bc008ef3023c40cdcf5597` at the start of Task 31.
@@ -59,10 +104,14 @@ remote CI and Docker runtime validation are not claimed by this result.
 | Scenario B: export | Verified bundle, redaction projection, archive metadata, digest and optional Ed25519 signature | `test_export_service.py`, export API tests | Task 31 selected signed-export, trusted-key, wrong-key, tamper, and digest tests | Bundle verification establishes internal consistency, not external source authenticity or complete selection. |
 | Scenario C: access reporting | Explicit account-access contract; UTC/filter/pagination; archived records; redaction; fail-closed integrity handling | `test_audit_routes.py::test_access_report_*` and query-service coverage | Task 31 selected archived/corrupt-source tests | Covers recorded application events only; it does not prove completeness of external access logging. |
 | Security | HS256 JWT validation, issuer/audience/expiry/subject/roles, endpoint RBAC, no token/payload logging | `test_auth.py`, invalid-token/RBAC/log tests in `test_audit_routes.py` | Task 31 selected authentication/RBAC/log tests | Local symmetric signing key, no rotation, revocation, or IdP integration. |
-| Operational readiness | Health/readiness, request correlation IDs, local SQLite write coordination, container configuration | `test_database.py`, API tests, CI smoke script | Developer-confirmed GitHub Actions/Docker run; details unavailable to this review | Single SQLite replica; no distributed coordination or observability backend. |
-| Dependency security | Direct pins, strict `pip-audit` CI gate | Task 30/31 local strict scan | Developer-confirmed post-remediation workflow success; run details unavailable | Advisory data changes over time; scan must remain a release gate. |
+| Operational readiness | Health/readiness, request correlation IDs, local SQLite write coordination, container configuration | `test_database.py`, API tests, CI smoke script | Green GitHub Actions container-smoke job (run 45934437700) | Single SQLite replica; no distributed coordination or observability backend. |
+| Dependency security | Direct pins, strict `pip-audit` CI gate | Task 30/31 local strict scan; CI `pip-audit --strict` job | Green GitHub Actions dependency-security job (run 45934437700) | Advisory data changes over time; scan must remain a release gate. |
 
 ## Task 31 acceptance checks
+
+> **Historical (superseded).** Retained as development history. The submission
+> baseline is the 475-test Task 51 run and the green CI run cited above; the
+> 341-test and 24-test figures below are not the submission counts.
 
 The selected 24-test run confirmed application startup configuration, health and
 sanitized readiness failure, JWT rejection/RBAC, event creation and chain
@@ -81,17 +130,16 @@ destructive validation; its SHA-256 baseline is
 
 ## Outstanding checks and limitations
 
-- Independently retrieving the successful GitHub Actions run ID and individual
-  job logs remains unavailable with the current local GitHub credential.
-- Docker execution is developer-confirmed through CI but not independently
-  replayed locally because Docker is unavailable here.
+- The remote CI run is cited above and is green. Docker execution is not
+  replayed on the author's local machine because Docker is unavailable there;
+  the container smoke test ran in CI.
 - The prototype remains constrained by its same-database trust boundary,
   SQLite single-replica design, whole-chain memory use, absent migrations, and
   deferred production identity/secret-management infrastructure.
 
 ## Test strategy and coverage inventory
 
-The 341-test final regression baseline is a single full-suite count. The 24 selected Task 31 acceptance tests are a subset selected from that coverage and must not be added to it. The suite uses isolated SQLite databases, dependency overrides, temporary credentials, and temporary signing keys where required.
+The 475-test final regression baseline is a single full-suite count. The 24 selected Task 31 acceptance tests are a historical subset and must not be added to it. The suite uses isolated SQLite databases, dependency overrides, temporary credentials, and temporary signing keys where required.
 
 | Testing layer | Primary modules and representative coverage |
 | --- | --- |
@@ -102,7 +150,7 @@ The 341-test final regression baseline is a single full-suite count. The 24 sele
 | Export/crypto | `test_export_service.py`: witness/digest, redaction/archive projection, Ed25519 signing, wrong key, downgrade and tamper rejection. |
 | Operational/security | Auth, request-ID/logging, SQLite write coordination, `compileall`, `pip check`, strict local `pip-audit`; Docker smoke coverage is developer-confirmed through CI. |
 
-The existing Starlette/TestClient deprecation warning is recorded, not hidden. No load/throughput benchmark, production monitoring test, or independently retrieved remote CI job log is claimed.
+The existing Starlette/TestClient deprecation warning is recorded, not hidden. The remote CI run and artifact are cited above; no load/throughput benchmark or production monitoring test is claimed.
 
 ## Independent coverage thresholds
 
@@ -172,5 +220,8 @@ only partial coverage evidence; in that case the gate is intentionally skipped
 and the manifest records that it did not run.
 
 ## Task 32 focused documentation demonstration
+
+> **Historical (superseded).** Retained as development history. The 341-test
+> baseline named below is not the submission count.
 
 Task 32 executed a separate temporary-database FastAPI `TestClient` example using temporary in-process JWT configuration. It returned HTTP 201 for initial writer creation, HTTP 200 for an identical idempotent replay with the same ID, and HTTP 200 with `isIntact:true` for auditor verification. It emitted the existing TestClient deprecation warning. It was not a substitute for, nor added to, the recorded 341-test full regression baseline.

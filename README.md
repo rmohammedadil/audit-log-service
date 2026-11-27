@@ -125,8 +125,15 @@ Task 51 validated application revision
 seconds, exit code 0, with one existing TestClient deprecation warning. It
 measured 90.14% line coverage and 79.12% branch coverage; all configured
 coverage thresholds passed. This is a single full-suite count, not a combined
-count with selected acceptance checks. Later documentation commits do not
-change the tested application revision. Use the project virtual environment:
+count with selected acceptance checks.
+
+The attested application revision is
+`78a19710a9bcd21b9fa5624ea93b83a8bf79116f` (byte-identical application inputs
+to the Task 51 revision); the suite was re-run there with the same result. The
+final submission revision is the tag `submission-final`. The
+[green CI run](https://github.com/rmohammedadil/audit-log-service/actions/runs/45934437700)
+enforces the coverage gate and publishes the regression-evidence artifact. Use
+the project virtual environment:
 
 ```bash
 python -m pytest -q

@@ -60,11 +60,21 @@ Task 51 validated application revision
 seconds, exit code 0, with one existing TestClient deprecation warning. It
 measured 90.14% line coverage and 79.12% branch coverage; all configured
 coverage gates passed. A separate disposable live HTTP run passed 25 checks.
-`compileall`, `pip check`, and `git diff --check` passed. The Task 51
-`pip-audit` invocation did not produce a captured final result, so dependency
-security is not claimed as revalidated by that task. Remote CI and Docker
-runtime validation remain pending. Later documentation commits do not change
-the tested application revision.
+`compileall`, `pip check`, and `git diff --check` passed.
+
+The attested application revision is
+`78a19710a9bcd21b9fa5624ea93b83a8bf79116f`; the application, test, dependency,
+and CI inputs are byte-identical to the Task 51 revision (`git diff --stat
+3b0eb5d..78a1971 -- app/ scripts/ requirements.txt pytest.ini .coveragerc
+.github/` is empty). The suite was re-run at `78a1971` on 27 November 2026 with
+the same result. The final submission revision is the documentation-only tag
+`submission-final`.
+
+Remote CI run
+[45934437700](https://github.com/rmohammedadil/audit-log-service/actions/runs/45934437700)
+is green: regression (475 tests plus the coverage gate), dependency
+vulnerability scan (`pip-audit --strict`), and Docker runtime smoke test all
+passed, and the regression-evidence artifact was published.
 
 ## AI-assisted development and human oversight
 
@@ -83,8 +93,8 @@ retained responsibility for the result. The historical record is in
 - Redaction masks response/export views; originals remain in storage/backups.
 - JWT rotation/revocation, external IdP, managed keys, rate limiting,
   monitoring backend, and regulatory certification are not implemented.
-- Docker/CI success is developer-confirmed; detailed remote job logs were not
-  independently accessible in the recorded final review.
+- Docker and CI validation is evidenced by the green run 45934437700 cited
+  above; Docker was not replayed on the author's local machine.
 
 ## Repository navigation
 

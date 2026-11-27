@@ -4,7 +4,7 @@
 
 **Email:** [rmdadil25@gmail.com](mailto:rmdadil25@gmail.com)
 
-**Assignment Title:** AI-Assisted Software Engineering System — Audit Log Service
+**Assignment Title:** Interview Assignment: Build an AI-Assisted Software Engineering System — Audit Log Service
 
 **Assignment Start Date:** 23 November 2026
 
@@ -42,8 +42,7 @@ git diff --stat 3b0eb5d..78a1971 -- app/ scripts/ requirements.txt pytest.ini .c
 # (no output)
 ```
 
-Submission is via the private repository; no archive is used. If an archive is
-also supplied, its SHA-256 must be recorded here before submission.
+Submission is via the private repository; no archive is used.
 
 ## Engineering Evidence
 
@@ -93,9 +92,20 @@ dependencies.
 
 ## Limitations
 
-Known limitations include SQLite deployment constraints, privileged database
-access risks, and redaction and offline-export verification boundaries. Detailed
-limitations and validation status are documented in
+Known limitations, stated without overclaiming:
+
+- SQLite single-replica persistence; no PostgreSQL migration path or
+  multi-process contention evidence.
+- The chain checkpoint shares the database with the log, so a privileged
+  coherent rewrite of both is not detectable; there is no external/WORM anchor.
+- HS256 shared-secret JWT signing with no key rotation, revocation, or external
+  identity provider.
+- No rate limiting and no transport-level request body-size limit.
+- Redaction masks response and export views; original values remain in storage.
+- Offline export verification proves internal consistency, not source
+  authenticity or completeness of selection.
+
+Detailed limitations and validation status are documented in
 [ENGINEERING_SUMMARY.md](ENGINEERING_SUMMARY.md) and
 [docs/testing.md](docs/testing.md).
 

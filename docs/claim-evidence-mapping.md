@@ -6,6 +6,19 @@ application validation was executed at
 not change that tested application revision. Test names are evidence of the
 automated assertions, not a claim of production or regulatory certification.
 
+The attested application revision is
+`78a19710a9bcd21b9fa5624ea93b83a8bf79116f`. The application, test, dependency,
+and CI inputs are byte-identical to the Task 51 revision:
+
+```text
+git diff --stat 3b0eb5d..78a1971 -- app/ scripts/ requirements.txt pytest.ini .coveragerc .github/
+# (no output)
+```
+
+The final submission revision is the documentation-only tag `submission-final`.
+The suite was re-run at `78a1971` on 27 November 2026: 475 passed, 90.14% line
+and 79.12% branch coverage, and the independent coverage gate exited 0.
+
 | Claim | Implementation reference | Automated evidence | Task 51 / limitations |
 | --- | --- | --- | --- |
 | Application-level append-only event persistence | `app/services/v4_audit_service.py::append_v4_audit_event`, `V4TenantChainState` | `test_tenant_chains_are_independent_and_checkpointed`, `test_append_and_checkpoint_are_rolled_back_together` | Live creation/replay passed. A privileged database administrator can still rewrite coordinated same-database evidence. |
@@ -18,7 +31,18 @@ automated assertions, not a claim of production or regulatory certification.
 | Retention and redaction integrity | `archive_v4_events`, `redact_v4_event`, `verify_v4_lifecycle` | `test_v4_retention_is_tenant_scoped_and_hides_archived_events`, `test_v4_lifecycle_rollback_and_noop_behavior`, `test_v4_partial_archive_metadata_deletion_is_detected` | Live retention execution and redaction projection passed. Redaction masks views; it does not erase originals. |
 | Independently verifiable exports and signatures | `app/services/v4_export_service.py::create_v4_export`, `app/verify_v4_export.py::verify_v4_bundle`, `app/export_signing.py` | `test_valid_unsigned_and_signed_v4_bundles`, `test_signature_failures_fail_closed`, `test_v4_cli_reports_malformed_evidence_without_a_traceback` | Signed export and trusted-key offline verification passed live. Redacted originals and source-selection completeness cannot be independently proven offline. |
 | Regulatory access reporting | `app/api/v4_audit_routes.py::access_reports`; canonical contract in `app/schemas.py::AuditEventCreate` | `test_v4_verify_and_access_reports_are_tenant_resource_scoped`, `test_v4_archive_filtering_occurs_before_pagination` | Live reporting passed for recorded canonical access events only; it does not prove external access-log completeness. |
-| Coverage thresholds and CI evidence | `scripts/check_coverage.py`; `.github/workflows/ci.yml` regression job | `tests/test_coverage_gate.py::test_valid_report_passes_all_thresholds`, `test_main_returns_documented_exit_codes` | Task 51 gate passed. CI is configured to capture evidence, but no Task 51 remote CI or Docker run is claimed. |
+| Coverage thresholds and CI evidence | `scripts/check_coverage.py`; `.github/workflows/ci.yml` regression job | `tests/test_coverage_gate.py::test_valid_report_passes_all_thresholds`, `test_main_returns_documented_exit_codes` | Task 51 gate passed locally; the green CI run 45934437700 also enforced the gate and published the regression-evidence artifact. |
+
+## Remote CI evidence
+
+The GitHub Actions run
+[45934437700](https://github.com/rmohammedadil/audit-log-service/actions/runs/45934437700)
+is green: regression (475 tests plus the independent coverage gate),
+dependency vulnerability scan (`pip-audit --strict`), and Docker runtime smoke
+test all passed. The regression-evidence artifact is published at
+[artifacts/15169658552](https://github.com/rmohammedadil/audit-log-service/actions/runs/45934437700/artifacts/15169658552).
+The artifact manifest records the tested SHA, ref, branch, Python version, exact
+commands, and step outcomes.
 
 ## Local Task 51 evidence
 

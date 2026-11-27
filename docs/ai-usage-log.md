@@ -1485,10 +1485,37 @@ No external evaluation acceptance is claimed.
   evidence into the tracked `ATTESTATION.md` so a repository archive contains
   the candidate identity, mandatory ownership declaration, Scenario A/B/C
   scope, validated revision, AI-assistance and reuse disclosure, evidence
-  references, Task 51 results, remote CI links, limitations, and blank
-  candidate-signature fields.
-- **Scope and limitations:** This documentation-only update does not claim a
-  new test run, submission timestamp, archive checksum, or candidate signature.
-  The validated application revision remains
-  `78a19710a9bcd21b9fa5624ea93b83a8bf79116f`; the eventual archive revision and
-  checksum must be established externally after final repository archival.
+  references, Task 51 results, remote CI links, limitations, and
+  candidate-signature fields (completed in Task 53E).
+- **Scope and limitations:** This documentation-only update did not itself
+  claim a new test run, submission timestamp, archive checksum, or candidate
+  signature; those were finalized in Task 53E. The validated application
+  revision remains
+  `78a19710a9bcd21b9fa5624ea93b83a8bf79116f`; no archive is used for this
+  submission.
+
+## Task 53E - Submission evidence reconciliation and revision binding
+
+- **Engineer request and AI contribution:** Reconciled the attestation with the
+  supporting evidence documents and bound it to a resolvable revision.
+  Re-ran the suite at `78a1971` in a clean Python 3.12.7 environment:
+  475 passed, exit code 0, 90.14% line and 79.12% branch coverage, independent
+  gate exit 0.
+- **Corrections:** Recorded that `app/`, `scripts/`, `requirements.txt`,
+  `pytest.ini`, `.coveragerc`, and `.github/` are byte-identical between the
+  Task 51 revision `3b0eb5d` and the attested revision `78a1971`
+  (`git diff --stat` empty). Updated `docs/testing.md`,
+  `docs/claim-evidence-mapping.md`, `ENGINEERING_SUMMARY.md`, and `README.md`
+  so they cite the same validated revision and the green CI run instead of
+  earlier "CI unavailable/pending" wording. Marked Task 31/36F/32 sections as
+  historical.
+- **Revision binding:** Created annotated tag `submission-final` on the
+  documentation-only commit that contains this attestation. The attestation is
+  therefore resolvable with `git rev-list -n1 submission-final`.
+- **Remote CI:** Engineer confirmed GitHub Actions run 45934437700 is green
+  (regression, dependency scan, container smoke) with the evidence artifact
+  published. No application code, tests, dependencies, or CI configuration was
+  changed by this task.
+- **Limitations:** Docker was not replayed locally; the container smoke result
+  is the CI job. SQLite, same-database checkpoint, shared-secret JWT, and
+  non-erasing redaction remain documented limitations.
